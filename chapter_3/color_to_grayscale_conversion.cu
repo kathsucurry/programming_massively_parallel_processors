@@ -17,8 +17,8 @@ __global__
 void colorToGrayscaleConversionKernel(
     // The input image is encoded as unsigned chars [0, 255].
     // Each pixel is 3 consecutive chars for the 3 channels (RGB).
-    unsigned char * Pout,
-    unsigned char * Pin,
+    unsigned char * image_output,
+    unsigned char * image_input,
     int width,
     int height
 ) {
@@ -27,19 +27,19 @@ void colorToGrayscaleConversionKernel(
 
     if (col < width && row < height) {
         // Get 1D offset for the grayscale image.
-        int grayOffset = row * width + col;
+        int gray_offset = row * width + col;
 
         // One can think of the RGB image having CHANNEL times
         // more columns than the grayscale image.
-        int rgbOffset = grayOffset * NUM_RGB_CHANNELS;
+        int rgb_offset = gray_offset * NUM_RGB_CHANNELS;
 
-        unsigned char r = Pin[rgbOffset    ];
-        unsigned char g = Pin[rgbOffset + 1];
-        unsigned char b = Pin[rgbOffset + 2];
+        unsigned char r = image_input[rgb_offset    ];
+        unsigned char g = image_input[rgb_offset + 1];
+        unsigned char b = image_input[rgb_offset + 2];
 
         // Perform the rescaling and store it.
         // We multiply by floating point constants.
-        Pout[grayOffset] = 0.21f * r + 0.71f * g + 0.07f * b;
+        image_output[gray_offset] = 0.21f * r + 0.71f * g + 0.07f * b;
     }
 }
 
