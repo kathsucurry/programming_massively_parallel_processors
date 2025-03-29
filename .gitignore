@@ -1,6 +1,15 @@
-*.i
-*.ii
-*.gpu
-*.ptx
-*.cubin
-*.fatbin
+# Ignore files without extension.
+# Ignore all
+*
+
+# Unignore all with extensions
+!*.*
+
+# Unignore all dirs
+!*/
+
+# Ignore input images.
+*.jpg
+
+# Ignore C library files.
+*.h
