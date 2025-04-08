@@ -13,3 +13,5 @@
 
 # Ignore C library files.
 *.h
+
+.vscode/*
