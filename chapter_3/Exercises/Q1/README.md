@@ -5,7 +5,11 @@
 - `Question1AKernel()`: each thread produces one row output
 - `Question1BKernel()`: each thread produces one column output
 
-In terms of the pros and cons of each function, my first guess is that `Question1AKernel()` would be faster when handling larger matrices compared to `Question1BKernel()` given the CUDA C's row major layout characteristic. 
+Let `M`, `N` denote the first and second matrix to be multiplied, respectively, outputting a matrix `Out`.
+
+To produce one row output in each thread, each thread in `Question1AKernel()` defines the row in matrix `M` and `Out`. It then calculates the dot product between the row in matrix `M` and for *each* column in matrix `N` to produce one row output. Meanwhile, each thread in `Question1BKernel()` defines the column in matrix `N` and `Out`. The function then calcultes the dot product between *each* row in matrix `M` and the column in matrix `N` to produce one column output.
+
+Given that CUDA C has the row major layout characteristic,`Question1BKernel()` is able to utilize it during the dot product calculation, so we can expect that `Question1BKernel()` would be faster than `Question1AKernel()`.
 
 ## Running with smaller matrix width to check correctness.
 
@@ -42,6 +46,6 @@ File: `run_question.cu`
 
 The current width is set to `5000`. Running with Q1A and Q1B kernel prints total durations of `~13.7s` and `~6.5s`, respectively.
 
-## Summary(?)
+## Summary
 
-Surprisingly, question 1B kernel consistently leads to faster run time (around 1/2 of question 1A kernel runtime)... My plan is to keep reading the book to see if I'm missing something or to eventually ask online...
+Question 1B kernel consistently leads to faster run time (around 1/2 of question 1A kernel runtime) based on the tests above.
