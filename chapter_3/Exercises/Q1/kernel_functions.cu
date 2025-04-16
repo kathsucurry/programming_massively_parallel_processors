@@ -7,10 +7,8 @@
  * Please refer to the README.md in the Exercises directory for
  * further descriptions of what I am trying to do in the code.
  */
-#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
 #include <cuda_runtime.h>
  
 // Thread block size.
