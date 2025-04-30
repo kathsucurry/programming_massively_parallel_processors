@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <cuda_runtime.h>
 
-#define BLOCK_SIZE 16
+#define BLOCK_SIZE 2
 #define TILE_WIDTH 2
 
 
@@ -27,26 +27,25 @@ void MatrixMultiplicationKernel(
     int thread_y = threadIdx.y;
 
     // Identify the row and column of the matrix_Out matrix to work on.
-    int Row = block_y * TILE_WIDTH + thread_y;
-    int Col = block_x * TILE_WIDTH + thread_x;
+    // Note that here, block dimension = TILE_WIDTH.
+    int Row = block_y * blockDim.y + thread_y;
+    int Col = block_x * blockDim.x + thread_x;
 
-    if ((Row < Width) && (Col < Width)) {
-        // Loop over the tiles required to compute matrix_Out elements.
-        int out_value = 0;
-        for (int phase = 0; phase < Width/TILE_WIDTH; ++phase) {
-            // Collaboratively load M and N tiles into shared memory.
-            shared_M[thread_y][thread_x] = matrix_M[Row*Width + phase*TILE_WIDTH + thread_x];
-            shared_N[thread_y][thread_x] = matrix_N[(phase*TILE_WIDTH + thread_y)*Width + Col];
-            __syncthreads();
+    // Loop over the tiles required to compute matrix_Out elements.
+    int out_value = 0;
+    for (int phase = 0; phase < Width/TILE_WIDTH; ++phase) {
+        // Collaboratively load M and N tiles into shared memory.
+        shared_M[thread_y][thread_x] = matrix_M[Row*Width + phase*TILE_WIDTH + thread_x];
+        shared_N[thread_y][thread_x] = matrix_N[(phase*TILE_WIDTH + thread_y)*Width + Col];
+        __syncthreads();
 
-            for (int k = 0; k < TILE_WIDTH; ++k) {
-                out_value += shared_M[thread_y][k] * shared_N[k][thread_x];
-            }
-            __syncthreads();
+        for (int k = 0; k < TILE_WIDTH; ++k) {
+            out_value += shared_M[thread_y][k] * shared_N[k][thread_x];
         }
-        matrix_Out[Row * Width + Col] = out_value;
+        __syncthreads();
     }
-}
+    matrix_Out[Row * Width + Col] = out_value;
+ }
 
 
 void runMatrixMultiplication(
@@ -70,7 +69,7 @@ void runMatrixMultiplication(
 
     // Invoke kernel.
     dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE);
-    dim3 dimGrid(ceil(Width / (BLOCK_SIZE * 0.1)), ceil(Width / (BLOCK_SIZE * 0.1)));
+    dim3 dimGrid(ceil(Width / (BLOCK_SIZE * 1.0)), ceil(Width / (BLOCK_SIZE * 1.0)));
     MatrixMultiplicationKernel<<<dimGrid, dimBlock>>>(matrix_M_d, matrix_N_d, matrix_Out_d, Width);
 
     // Copy the output matrix from the device memory.
