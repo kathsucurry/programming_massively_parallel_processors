@@ -33,10 +33,21 @@ void MatrixMultiplicationKernel(
 
     // Loop over the tiles required to compute matrix_Out elements.
     int out_value = 0;
-    for (int phase = 0; phase < Width/TILE_WIDTH; ++phase) {
+    for (int phase = 0; phase < ceil(Width*1.0/TILE_WIDTH); ++phase) {
         // Collaboratively load M and N tiles into shared memory.
-        shared_M[thread_y][thread_x] = matrix_M[Row*Width + phase*TILE_WIDTH + thread_x];
-        shared_N[thread_y][thread_x] = matrix_N[(phase*TILE_WIDTH + thread_y)*Width + Col];
+        int in_matrix_M_index = Row*Width + phase*TILE_WIDTH + thread_x;
+        int in_matrix_N_index = (phase*TILE_WIDTH + thread_y)*Width + Col;
+
+        // Check for boundary for both dimensions.
+        if (Row < Width && phase*TILE_WIDTH + thread_x < Width)
+            shared_M[thread_y][thread_x] = matrix_M[in_matrix_M_index];
+        else
+            shared_M[thread_y][thread_x] = 0;
+
+        if (phase*TILE_WIDTH + thread_y < Width && Col < Width)
+            shared_N[thread_y][thread_x] = matrix_N[in_matrix_N_index];
+        else
+            shared_N[thread_y][thread_x] = 0;
         __syncthreads();
 
         for (int k = 0; k < TILE_WIDTH; ++k) {
@@ -44,7 +55,9 @@ void MatrixMultiplicationKernel(
         }
         __syncthreads();
     }
-    matrix_Out[Row * Width + Col] = out_value;
+
+    if (Row < Width && Col < Width)
+        matrix_Out[Row * Width + Col] = out_value;
  }
 
 
@@ -84,7 +97,7 @@ void runMatrixMultiplication(
 
 int main() {
     // Matrices are stored in row-major order.
-    int Width = 4;
+    int Width = 9;
 
     // Define identical matrices M and N where each element = 1 .. Width * Width.
     int * matrix_M = (int *) malloc(Width * Width * sizeof(int));
