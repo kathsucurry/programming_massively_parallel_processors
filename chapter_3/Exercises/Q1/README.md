@@ -48,4 +48,4 @@ The current width is set to `5000`. Running with Q1A and Q1B kernel prints total
 
 ## Summary
 
-Question 1B kernel consistently leads to faster run time (around 1/2 of question 1A kernel runtime) based on the tests above.
+Question 1B kernel consistently leads to faster run time (around 1/2 of question 1A kernel runtime) based on the tests above. One potential improvement would be to run multiple times and compute runtime average instead of relying only on one run.

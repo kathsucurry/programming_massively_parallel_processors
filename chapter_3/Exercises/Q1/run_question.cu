@@ -13,6 +13,16 @@ int main() {
     }
 
     // Update the kernel function/label accordingly.
+    // The first run is only for warming up (i.e., initializing resources etc).
+    run_kernel(
+        matrix_M,
+        matrix_N,
+        Width,
+        Question1AKernel,
+        "Question 1A Kernel"
+    );
+
+    // This is where we're interested in the runtime.
     run_kernel(
         matrix_M,
         matrix_N,

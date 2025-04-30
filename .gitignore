@@ -18,3 +18,5 @@
 *.txt
 
 .vscode/*
+
+build/

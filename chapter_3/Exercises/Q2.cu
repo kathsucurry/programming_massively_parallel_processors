@@ -55,7 +55,7 @@ void runMatrixVectorMultiplication(
  
     // Invoke kernel.
     dim3 dimBlock(BLOCK_SIZE);
-    dim3 dimGrid(ceil(Width / (BLOCK_SIZE * 0.1)));
+    dim3 dimGrid(ceil(Width / (BLOCK_SIZE * 1.0)));
  
     MatrixVectorMultiplicationKernel<<<dimGrid, dimBlock>>>(vector_A_d, matrix_B_d, vector_C_d, Width);
 

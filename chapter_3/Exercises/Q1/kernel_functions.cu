@@ -90,7 +90,7 @@ void runMatrixMultiplication(
  
     // Invoke kernel.
     dim3 dimBlock(BLOCK_SIZE);
-    dim3 dimGrid(ceil(Width / (BLOCK_SIZE * 0.1)));
+    dim3 dimGrid(ceil(Width / (BLOCK_SIZE * 1.0)));
  
     // Initialize CUDA events to time the kernel function run.
     // For more information: https://developer.nvidia.com/blog/how-implement-performance-metrics-cuda-cc/
