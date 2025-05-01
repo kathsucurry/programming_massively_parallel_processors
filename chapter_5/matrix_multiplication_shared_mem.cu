@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <cuda_runtime.h>
 
+// BLOCK_SIZE and TILE_WIDTH should be identical.
 #define BLOCK_SIZE 2
 #define TILE_WIDTH 2
 
