@@ -15,14 +15,14 @@ Given that CUDA C has the row major layout characteristic,`Question1BKernel()` i
 
 File: `check_correctness.cu`
 
-I prepared two identical matrices of size 100 x 100 with values `0..100*100` produced by the following code (I used Python just because I'm more familiar with it.)
+I prepared two identical matrices of size 100 x 100 with values `0..100*100 % 10` produced by the following code (I used Python just because I'm more familiar with it.)
 
 ```
 import numpy as np
 
 width = 100
-m = np.arange(width*width).reshape((width, width))
-n = np.arange(width*width).reshape((width, width))
+m = np.arange(width*width).reshape((width, width)) % 10
+n = np.arange(width*width).reshape((width, width)) % 10
 
 # Get the matrix multiplication result.
 output = m @ n
@@ -38,13 +38,13 @@ Each file contains 2 rows:
 - row 1: one integer indicating the width of the matrix
 - row 2: `width * width` number of elements of the matrix, each separated by a space. The row ends with an endline.
 
-Running with Q1A and Q1B kernels prints total durations of `~0.0008s` and `~0.0005s`, respectively.
+Running with Q1A and Q1B kernels prints total durations of `~0.0006s` and `~0.0003s`, respectively.
 
 ## Running with larger matrix width.
 
 File: `run_question.cu`
 
-The current width is set to `5000`. Running with Q1A and Q1B kernel prints total durations of `~13.7s` and `~6.5s`, respectively.
+The current width is set to `5000`. Running with Q1A and Q1B kernel prints total durations of `~14.18s` and `~6.5s`, respectively.
 
 ## Summary
 

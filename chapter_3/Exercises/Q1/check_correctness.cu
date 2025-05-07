@@ -1,18 +1,22 @@
 #include <assert.h>
+#include <math.h>
 
 #include "kernel_functions.cu"
+
+
+#define eps 1e-5
 
 
 /**
  * Parse a line read from file into a matrix.
  */
- void parse_line_to_matrix(char * line, int * matrix, int matrix_width) {
+ void parse_line_to_matrix(char * line, float * matrix, int matrix_width) {
     const int INIT_VALUE = -1;
     int matrix_index = 0, current_value = INIT_VALUE, char_index = 0;
     while (true) {
         if (line[char_index] == ' ' || line[char_index] == '\0' || line[char_index] == '\n') {
             if (current_value != INIT_VALUE) {
-                matrix[matrix_index] = current_value;
+                matrix[matrix_index] = (float) current_value;
                 current_value = INIT_VALUE;
                 ++matrix_index;
                 ++char_index;
@@ -46,7 +50,7 @@
  *           value is separated by a space. The line always ends with an end of line.
  *
  */
-int read_matrix_from_file(int ** matrix, size_t max_buffer_size, const char* filename) {
+int read_matrix_from_file(float ** matrix, size_t max_buffer_size, const char* filename) {
     FILE* file_pointer = fopen(filename, "r");
 
     if (file_pointer == NULL) {
@@ -63,7 +67,7 @@ int read_matrix_from_file(int ** matrix, size_t max_buffer_size, const char* fil
     while (fgets(buffer, max_buffer_size, file_pointer)) {
         if (line_counter == 0) {
             sscanf(buffer, "%d\n", &matrix_width);
-            * matrix = (int *) malloc(matrix_width * matrix_width * sizeof(int));
+            * matrix = (float *) malloc(matrix_width * matrix_width * sizeof(float));
         } else if (line_counter == 1) {
             parse_line_to_matrix(buffer, * matrix, matrix_width);
         }
@@ -76,10 +80,11 @@ int read_matrix_from_file(int ** matrix, size_t max_buffer_size, const char* fil
 }
 
 
-void check_matmul_results(int * out_matrix, int * expected_out_matrix, int width) {
+void check_matmul_results(float * out_matrix, float * expected_out_matrix, int width) {
     for (int i = 0; i < width; ++i) {
         for (int j = 0; j < width; ++j) {
-            if (out_matrix[i * width + j] != expected_out_matrix[i * width + j]) {
+            if (fabs(out_matrix[i * width + j] - expected_out_matrix[i * width + j]) >= eps) {
+                printf("%d %d %.2lf %.2lf\n", i, j, out_matrix[i * width + j], expected_out_matrix[i * width + j]);
                 printf("Incorrect results.\n");
                 return;
             }
@@ -90,16 +95,16 @@ void check_matmul_results(int * out_matrix, int * expected_out_matrix, int width
 
 
 void run_kernel_and_check(
-    int * matrix_M,
-    int * matrix_N,
-    int * matrix_expected_Out,
+    float * matrix_M,
+    float * matrix_N,
+    float * matrix_expected_Out,
     int Width,
     MatrixMultiplicationFuction* matmul_kernel,
     const char * label
 ) {
     printf("Running %s...\n", label);
 
-    int * matrix_Out = (int *) malloc(Width * Width * sizeof(int));
+    float * matrix_Out = (float *) malloc(Width * Width * sizeof(float));
     
     runMatrixMultiplication(matrix_M, matrix_N, matrix_Out, Width, matmul_kernel);
     check_matmul_results(matrix_Out, matrix_expected_Out, Width);
@@ -111,12 +116,12 @@ void run_kernel_and_check(
 
 int main() {
     // Matrices are to be stored in row-major order.
-    int * matrix_M;
-    int * matrix_N;
-    int * matrix_expected_Out;
+    float * matrix_M;
+    float * matrix_N;
+    float * matrix_expected_Out;
 
     // Read inputs; we already know the approximate length of the characters.
-    size_t input_max_length = 50000, output_max_length = 110000;
+    size_t input_max_length = 30000, output_max_length = 50000;
 
     int matrix_width_M = read_matrix_from_file(&matrix_M, input_max_length, "chapter_3_matmul_input.txt");
     int matrix_width_N = read_matrix_from_file(&matrix_N, input_max_length, "chapter_3_matmul_input.txt");
@@ -126,13 +131,23 @@ int main() {
     int Width = matrix_width_M;
 
     // Update the kernel function/label accordingly.
+    // Warmup.
     run_kernel_and_check(
         matrix_M,
         matrix_N,
         matrix_expected_Out,
         Width,
-        Question1AKernel,
-        "Question 1A Kernel"
+        Question1BKernel,
+        "Question 1B Kernel"
+    );
+
+    run_kernel_and_check(
+        matrix_M,
+        matrix_N,
+        matrix_expected_Out,
+        Width,
+        Question1BKernel,
+        "Question 1B Kernel"
     );
 
     free(matrix_M);

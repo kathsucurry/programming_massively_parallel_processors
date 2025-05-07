@@ -4,12 +4,13 @@
 int main() {
     // Matrices are to be stored in row-major order.
     int Width = 5000;
-    int * matrix_M = (int *) malloc(Width * Width * sizeof(int));
-    int * matrix_N = (int *) malloc(Width * Width * sizeof(int));
+    float * matrix_M = (float *) malloc(Width * Width * sizeof(float));
+    float * matrix_N = (float *) malloc(Width * Width * sizeof(float));
 
     for (int i = 0; i < Width * Width; ++i) {
-        matrix_M[i] = i;
-        matrix_N[i] = i;
+        // Use a modulo to prevent overflow.
+        matrix_M[i] = i % 10;
+        matrix_N[i] = i % 10;
     }
 
     // Update the kernel function/label accordingly.
@@ -18,8 +19,8 @@ int main() {
         matrix_M,
         matrix_N,
         Width,
-        Question1AKernel,
-        "Question 1A Kernel"
+        Question1BKernel,
+        "Question 1B Kernel"
     );
 
     // This is where we're interested in the runtime.
@@ -27,8 +28,8 @@ int main() {
         matrix_M,
         matrix_N,
         Width,
-        Question1AKernel,
-        "Question 1A Kernel"
+        Question1BKernel,
+        "Question 1B Kernel"
     );
 
     free(matrix_M);
