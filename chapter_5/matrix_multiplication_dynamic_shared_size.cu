@@ -13,17 +13,17 @@
  */
 __global__
 void MatrixMultiplicationKernel(
-    int* matrix_M,
-    int* matrix_N,
-    int* matrix_Out,
+    float* matrix_M,
+    float* matrix_N,
+    float* matrix_Out,
     int Width,
     unsigned shared_M_N_size
 ) {
     // Initialize the shared memories.
-    extern __shared__ int shared_M_N[];
+    extern __shared__ float shared_M_N[];
 
-    int *shared_M = (int *) shared_M_N;
-    int *shared_N = (int * ) shared_M_N + shared_M_N_size / 2;
+    float *shared_M = (float *) shared_M_N;
+    float *shared_N = (float *) shared_M_N + shared_M_N_size / 2;
 
     int block_x = blockIdx.x;
     int block_y = blockIdx.y;
@@ -36,7 +36,7 @@ void MatrixMultiplicationKernel(
     int Col = block_x * TILE_WIDTH + thread_x;
 
     // Loop over the tiles required to compute matrix_Out elements.
-    int out_value = 0;
+    float out_value = 0;
     for (int phase = 0; phase < ceil(Width*1.0/TILE_WIDTH); ++phase) {
         // Collaboratively load M and N tiles into shared memory.
         int in_matrix_M_index = Row*Width + phase*TILE_WIDTH + thread_x;
@@ -66,17 +66,17 @@ void MatrixMultiplicationKernel(
 
 
 void runMatrixMultiplication(
-    int* matrix_M_h,
-    int* matrix_N_h,
-    int* matrix_Out_h,
+    float* matrix_M_h,
+    float* matrix_N_h,
+    float* matrix_Out_h,
     int Width,
     unsigned total_shared_memory_size
 ) {
     // Get size in bytes.
-    size_t size = Width * Width * sizeof(int);
+    size_t size = Width * Width * sizeof(float);
 
     // Load and copy matrix M and N to device memory.
-    int * matrix_M_d, * matrix_N_d, * matrix_Out_d;
+    float * matrix_M_d, * matrix_N_d, * matrix_Out_d;
     cudaMalloc((void***)&matrix_M_d, size);
     cudaMemcpy(matrix_M_d, matrix_M_h, size, cudaMemcpyHostToDevice);
 
@@ -106,12 +106,12 @@ int main() {
     
     // For simplicity, we define the shared memory size here instead of
     // it being adjusted based on the device model.
-    unsigned shared_memory_size = sizeof(int) * 4 * 2;
+    unsigned shared_memory_size = sizeof(float) * 4 * 2;
 
     // Define identical matrices M and N where each element = 1 .. Width * Width.
-    int * matrix_M = (int *) malloc(Width * Width * sizeof(int));
-    int * matrix_N = (int *) malloc(Width * Width * sizeof(int));
-    int * matrix_Out = (int *) malloc(Width * Width * sizeof(int));
+    float * matrix_M = (float *) malloc(Width * Width * sizeof(float));
+    float * matrix_N = (float *) malloc(Width * Width * sizeof(float));
+    float * matrix_Out = (float *) malloc(Width * Width * sizeof(float));
 
     for (int i = 1; i <= Width * Width; ++i) {
         matrix_M[i - 1] = i;
@@ -122,7 +122,7 @@ int main() {
 
     for (int i = 0; i < Width; ++i) {
         for (int j = 0; j < Width; ++j) {
-            printf("%d ", matrix_Out[i * Width + j]);
+            printf("%.0f ", matrix_Out[i * Width + j]);
         }
         printf("\n");
     }

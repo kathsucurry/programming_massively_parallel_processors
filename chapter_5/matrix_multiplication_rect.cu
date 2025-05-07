@@ -12,9 +12,9 @@
  */
 __global__
 void MatrixMultiplicationKernel(
-    int* matrix_M,
-    int* matrix_N,
-    int* matrix_Out,
+    float* matrix_M,
+    float* matrix_N,
+    float* matrix_Out,
     int mat1_Height,
     int mat1_Width,
     int mat2_Width
@@ -33,7 +33,7 @@ void MatrixMultiplicationKernel(
     int Col = block_x * TILE_WIDTH + thread_x;
 
     // Loop over the tiles required to compute matrix_Out elements.
-    int out_value = 0;
+    float out_value = 0;
     for (int phase = 0; phase < ceil(mat1_Width*1.0/TILE_WIDTH); ++phase) {
         // Collaboratively load M and N tiles into shared memory.
         int in_matrix_M_index = Row*mat1_Width + phase*TILE_WIDTH + thread_x;
@@ -63,20 +63,20 @@ void MatrixMultiplicationKernel(
 
 
 void runMatrixMultiplication(
-    int* matrix_M_h,
-    int* matrix_N_h,
-    int* matrix_Out_h,
+    float* matrix_M_h,
+    float* matrix_N_h,
+    float* matrix_Out_h,
     int mat1_Height,
     int mat1_Width,
     int mat2_Width
 ) {
     // Get size in bytes.
-    size_t size_M = mat1_Height * mat1_Width * sizeof(int);
-    size_t size_N = mat1_Width * mat2_Width * sizeof(int);
-    size_t size_Out = mat1_Height * mat2_Width * sizeof(int);
+    size_t size_M = mat1_Height * mat1_Width * sizeof(float);
+    size_t size_N = mat1_Width * mat2_Width * sizeof(float);
+    size_t size_Out = mat1_Height * mat2_Width * sizeof(float);
 
     // Load and copy matrix M and N to device memory.
-    int * matrix_M_d, * matrix_N_d, * matrix_Out_d;
+    float * matrix_M_d, * matrix_N_d, * matrix_Out_d;
     cudaMalloc((void***)&matrix_M_d, size_M);
     cudaMemcpy(matrix_M_d, matrix_M_h, size_M, cudaMemcpyHostToDevice);
 
@@ -107,7 +107,7 @@ void runMatrixMultiplication(
 }
 
 
-void fillMatrix(int * matrix, int height, int width) {
+void fillMatrix(float * matrix, int height, int width) {
     for (int i = 0; i < height * width; ++i) {
         matrix[i] = i + 1;
     }
@@ -124,9 +124,9 @@ int main() {
     int mat2_Width = 15;
 
     // Define matrices M and N where each element = 1 .. height * width.
-    int * matrix_M = (int *) malloc(mat1_Height * mat1_Width * sizeof(int));
-    int * matrix_N = (int *) malloc(mat1_Width * mat2_Width * sizeof(int));
-    int * matrix_Out = (int *) malloc(mat1_Height * mat2_Width * sizeof(int));
+    float * matrix_M = (float *) malloc(mat1_Height * mat1_Width * sizeof(float));
+    float * matrix_N = (float *) malloc(mat1_Width * mat2_Width * sizeof(float));
+    float * matrix_Out = (float *) malloc(mat1_Height * mat2_Width * sizeof(float));
 
     fillMatrix(matrix_M, mat1_Height, mat1_Width);
     fillMatrix(matrix_N, mat1_Width, mat2_Width);
@@ -135,7 +135,7 @@ int main() {
 
     for (int i = 0; i < mat1_Height; ++i) {
         for (int j = 0; j < mat2_Width; ++j) {
-            printf("%d ", matrix_Out[i * mat2_Width + j]);
+            printf("%.0f ", matrix_Out[i * mat2_Width + j]);
         }
         printf("\n");
     }
