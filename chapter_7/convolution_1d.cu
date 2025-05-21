@@ -85,7 +85,6 @@ int main() {
 
     // Define a 1 x 3 filter array with values 1 .. 3.
     float filter[] = {1, 2, 3};
-    int radius = 1;
 
     float output_array[12];
 
@@ -93,7 +92,7 @@ int main() {
         input_array,
         filter,
         output_array,
-        radius,
+        FILTER_RADIUS,
         length);
 
     for (int i = 0; i < length; ++i) {
