@@ -9,7 +9,7 @@ __constant__ float CONST_FILTER[2*FILTER_RADIUS+1][2*FILTER_RADIUS+1][2*FILTER_R
 
 
 /**
- *  (as long as the sizes are valid for performing matrix multiplication).
+ *  Perform 3D convolution.
  */
 __global__
 void Convolution3DBasicKernel(
