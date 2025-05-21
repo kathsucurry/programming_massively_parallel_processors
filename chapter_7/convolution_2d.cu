@@ -2,6 +2,10 @@
 #include <cuda_runtime.h>
 
 #define BLOCK_SIZE 4
+#define FILTER_RADIUS 1
+
+// Declare the filter array that utilizes constant memory.
+__constant__ float CONST_FILTER[2*FILTER_RADIUS+1][2*FILTER_RADIUS+1];
 
 
 /**
@@ -10,7 +14,6 @@
 __global__
 void Convolution2DBasicKernel(
     float* input_array,
-    float* filter,
     float* output_array,
     int radius,
     int width,
@@ -33,7 +36,7 @@ void Convolution2DBasicKernel(
             // Check the boundary.
             if (input_row >= 0 && input_row < height && input_col >= 0 && input_col < width) {
                 int input_index = input_row * width + input_col;
-                out_value += filter[filter_row*(2*radius+1)+filter_col]*input_array[input_index];
+                out_value += CONST_FILTER[filter_row][filter_col]*input_array[input_index];
             }
         }
     }
@@ -55,13 +58,12 @@ void runConvolution2D(
     size_t size_filter = (2*radius+1) * (2*radius+1) * sizeof(float);
 
     // Load and copy input_array and filter to device memory.
-    float * input_array_d, * filter_d, * output_array_d;
+    float * input_array_d, * output_array_d;
     
     cudaMalloc((void***)&input_array_d, size_input);
     cudaMemcpy(input_array_d, input_array_h, size_input, cudaMemcpyHostToDevice);
 
-    cudaMalloc((void***)&filter_d, size_filter);
-    cudaMemcpy(filter_d, filter_h, size_filter, cudaMemcpyHostToDevice);
+    cudaMemcpyToSymbol(CONST_FILTER, filter_h, size_filter);
 
     cudaMalloc((void***)&output_array_d, size_input);
 
@@ -70,7 +72,6 @@ void runConvolution2D(
     dim3 dimGrid(ceil(width / (BLOCK_SIZE * 1.0)), ceil(height / (BLOCK_SIZE * 1.0)));
     Convolution2DBasicKernel<<<dimGrid, dimBlock>>>(
         input_array_d,
-        filter_d,
         output_array_d,
         radius,
         width,
@@ -82,7 +83,6 @@ void runConvolution2D(
 
     // Free device vectors.
     cudaFree(input_array_d);
-    cudaFree(filter_d);
     cudaFree(output_array_d);
 }
 
