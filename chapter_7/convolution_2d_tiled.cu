@@ -4,44 +4,54 @@
 #define BLOCK_SIZE 4
 #define FILTER_RADIUS 1
 
+#define IN_TILE_DIM BLOCK_SIZE
+#define OUT_TILE_DIM ((IN_TILE_DIM) - 2*(FILTER_RADIUS))
+
 // Declare the filter array that utilizes constant memory.
 __constant__ float CONST_FILTER[2*FILTER_RADIUS+1][2*FILTER_RADIUS+1];
 
 
 /**
- *  Perform 2D convolution.
+ *  Perform tiled 2D convolution; corresponds to figure 7.12.
  */
 __global__
-void Convolution2DBasicKernel(
+void Convolution2DTiledKernel(
     float* input_array,
     float* output_array,
-    int radius,
     int width,
     int height
 ) {
-    int out_col = blockIdx.x * blockDim.x + threadIdx.x;
-    int out_row = blockIdx.y * blockDim.y + threadIdx.y;
-    float out_value = 0.0f;
+    int col = blockIdx.x * OUT_TILE_DIM + threadIdx.x - FILTER_RADIUS;
+    int row = blockIdx.y * OUT_TILE_DIM + threadIdx.y - FILTER_RADIUS;
+    
+    // Load input tile.
+    __shared__ float shared_array[IN_TILE_DIM][IN_TILE_DIM];
+    if (row >=0 && row < height && col >=0 && col < width)
+        shared_array[threadIdx.y][threadIdx.x] = input_array[row * width + col];
+    else
+        shared_array[threadIdx.y][threadIdx.x] = 0.0f;
+    
+    __syncthreads();
 
-    for (int conv_row = -radius; conv_row < radius+1; conv_row++) {
-        for (int conv_col = -radius; conv_col < radius+1; conv_col++) {
-            // Obtain the index of the input array.
-            int input_row = out_row + conv_row;
-            int input_col = out_col + conv_col;
+    // Calculate tile offset.
+    int tile_col = threadIdx.x - FILTER_RADIUS;
+    int tile_row = threadIdx.y - FILTER_RADIUS;
 
-            // Obtain the index of the filter.
-            int filter_row = conv_row + radius;
-            int filter_col = conv_col + radius;
-
-            // Check the boundary.
-            if (input_row >= 0 && input_row < height && input_col >= 0 && input_col < width) {
-                int input_index = input_row * width + input_col;
-                out_value += CONST_FILTER[filter_row][filter_col]*input_array[input_index];
+    // Turn off the threads at the edges of the block.
+    if (!(col >=0 && col < width && row >= 0 and row < height))
+        return;
+    
+    if (tile_col >= 0 && tile_col < OUT_TILE_DIM && tile_row >= 0 && tile_row < OUT_TILE_DIM) {
+        float out_value = 0.0f;
+        for (int conv_row = -FILTER_RADIUS; conv_row < FILTER_RADIUS + 1; ++conv_row) {
+            for (int conv_col = -FILTER_RADIUS; conv_col < FILTER_RADIUS + 1; ++conv_col) {
+                int filter_row = conv_row + FILTER_RADIUS;
+                int filter_col = conv_col + FILTER_RADIUS;
+                out_value += CONST_FILTER[filter_row][filter_col] * shared_array[tile_row+filter_row][tile_col+filter_col];
             }
         }
+        output_array[row * width + col] = out_value;
     }
-
-    output_array[out_row*width+out_col] = out_value;
 }
 
 
@@ -49,13 +59,12 @@ void runConvolution2D(
     float* input_array_h,
     float* filter_h,
     float* output_array_h,
-    int radius,
     int width,
     int height
 ) {
     // Get size in bytes.
     size_t size_input = width * height * sizeof(float);
-    size_t size_filter = (2*radius+1) * (2*radius+1) * sizeof(float);
+    size_t size_filter = (2*FILTER_RADIUS+1) * (2*FILTER_RADIUS+1) * sizeof(float);
 
     // Load and copy input_array and filter to device memory.
     float * input_array_d, * output_array_d;
@@ -69,11 +78,10 @@ void runConvolution2D(
 
     // Invoke kernel.
     dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE);
-    dim3 dimGrid(ceil(width / (BLOCK_SIZE * 1.0)), ceil(height / (BLOCK_SIZE * 1.0)));
-    Convolution2DBasicKernel<<<dimGrid, dimBlock>>>(
+    dim3 dimGrid(ceil(width / (OUT_TILE_DIM * 1.0)), ceil(height / (OUT_TILE_DIM * 1.0)));
+    Convolution2DTiledKernel<<<dimGrid, dimBlock>>>(
         input_array_d,
         output_array_d,
-        radius,
         width,
         height
     );
@@ -103,7 +111,6 @@ int main() {
         input_array,
         filter,
         output_array,
-        FILTER_RADIUS,
         width,
         height);
 
