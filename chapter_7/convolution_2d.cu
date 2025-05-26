@@ -9,7 +9,7 @@ __constant__ float CONST_FILTER[2*FILTER_RADIUS+1][2*FILTER_RADIUS+1];
 
 
 /**
- *  Perform 2D convolution.
+ *  Perform 2D convolution, corresponds to fig. 7.9.
  */
 __global__
 void Convolution2DBasicKernel(
@@ -21,6 +21,10 @@ void Convolution2DBasicKernel(
 ) {
     int out_col = blockIdx.x * blockDim.x + threadIdx.x;
     int out_row = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (!(out_col < width && out_row < height))
+        return;
+
     float out_value = 0.0f;
 
     for (int conv_row = -radius; conv_row < radius+1; conv_row++) {

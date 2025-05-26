@@ -15,7 +15,6 @@ __global__
 void Convolution3DBasicKernel(
     float* input_array,
     float* output_array,
-    int radius,
     int dim_x_size,
     int dim_y_size,
     int dim_z_size
@@ -23,21 +22,28 @@ void Convolution3DBasicKernel(
     int out_x_index = blockIdx.x * blockDim.x + threadIdx.x;
     int out_y_index = blockIdx.y * blockDim.y + threadIdx.y;
     int out_z_index = blockIdx.z * blockDim.z + threadIdx.z;
+
+    // Check boundary edges.
+    if (!(out_x_index < dim_x_size &&
+        out_y_index < dim_y_size &&
+        out_z_index < dim_z_size))
+        return;
+
     int out_index = out_z_index * dim_x_size * dim_y_size + out_y_index * dim_x_size + out_x_index;
     float out_value = 0.0f;
 
-    for (int conv_z_index = -radius; conv_z_index < radius+1; conv_z_index++) {
-        for (int conv_y_index = -radius; conv_y_index < radius+1; conv_y_index++) {
-            for (int conv_x_index = -radius; conv_x_index < radius+1; conv_x_index++) {
+    for (int conv_z_index = -FILTER_RADIUS; conv_z_index < FILTER_RADIUS+1; conv_z_index++) {
+        for (int conv_y_index = -FILTER_RADIUS; conv_y_index < FILTER_RADIUS+1; conv_y_index++) {
+            for (int conv_x_index = -FILTER_RADIUS; conv_x_index < FILTER_RADIUS+1; conv_x_index++) {
                 // Obtain the index of the input array.
                 int in_z_index = out_z_index + conv_z_index;
                 int in_y_index = out_y_index + conv_y_index;
                 int in_x_index = out_x_index + conv_x_index;
 
                 // Obtain the index of the filter.
-                int filter_z_index = conv_z_index + radius;
-                int filter_y_index = conv_y_index + radius;
-                int filter_x_index = conv_x_index + radius;
+                int filter_z_index = conv_z_index + FILTER_RADIUS;
+                int filter_y_index = conv_y_index + FILTER_RADIUS;
+                int filter_x_index = conv_x_index + FILTER_RADIUS;
 
                 // Check the boundary.
                 if (
@@ -58,14 +64,13 @@ void runConvolution3D(
     float* input_array_h,
     float* filter_h,
     float* output_array_h,
-    int radius,
     int dim_x_size,
     int dim_y_size,
     int dim_z_size
 ) {
     // Get size in bytes.
     size_t size_input = dim_x_size * dim_y_size * dim_z_size * sizeof(float);
-    size_t size_filter = (2*radius+1) * (2*radius+1) * (2*radius+1) * sizeof(float);
+    size_t size_filter = (2*FILTER_RADIUS+1) * (2*FILTER_RADIUS+1) * (2*FILTER_RADIUS+1) * sizeof(float);
 
     // Load and copy input_array and filter to device memory.
     float * input_array_d, * output_array_d;
@@ -86,7 +91,6 @@ void runConvolution3D(
     Convolution3DBasicKernel<<<dimGrid, dimBlock>>>(
         input_array_d,
         output_array_d,
-        radius,
         dim_x_size,
         dim_y_size,
         dim_z_size
@@ -102,12 +106,12 @@ void runConvolution3D(
 
 
 int main() {
-    // Define input array as a 4 x 5 x 6 array with input 1 .. 120.
-    int dim_x_size = 4, dim_y_size = 5, dim_z_size = 6;
+    // Define input array as a 8 x 7 x 6 array with input (1 .. 336) % 10.
+    int dim_x_size = 6, dim_y_size = 7, dim_z_size = 8;
     float input_array[dim_x_size * dim_y_size * dim_z_size];
 
     for (int i = 1; i < dim_x_size * dim_y_size * dim_z_size + 1; ++i) 
-        input_array[i-1] = i;
+        input_array[i-1] = i % 10;
 
     // Define filter as a 3 x 3 x 3 array with input 1 .. 27.
     int filter_dim_size = 2 * FILTER_RADIUS + 1;
@@ -121,7 +125,6 @@ int main() {
         input_array,
         filter,
         output_array,
-        FILTER_RADIUS,
         dim_x_size,
         dim_y_size,
         dim_z_size);
