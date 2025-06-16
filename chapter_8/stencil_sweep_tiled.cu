@@ -20,10 +20,10 @@ void StencilKernel(
     float* coefficients,
     unsigned int size
 ) {
-    unsigned int out_z_index = blockIdx.z * OUT_TILE_DIM + threadIdx.z - ORDER;
-    unsigned int out_y_index = blockIdx.y * OUT_TILE_DIM + threadIdx.y - ORDER;
-    unsigned int out_x_index = blockIdx.x * OUT_TILE_DIM + threadIdx.x - ORDER;
-    unsigned int out_index = out_z_index * size * size + out_y_index * size + out_x_index;
+    int out_z_index = blockIdx.z * OUT_TILE_DIM + threadIdx.z - ORDER;
+    int out_y_index = blockIdx.y * OUT_TILE_DIM + threadIdx.y - ORDER;
+    int out_x_index = blockIdx.x * OUT_TILE_DIM + threadIdx.x - ORDER;
+    int out_index = out_z_index * size * size + out_y_index * size + out_x_index;
 
     __shared__ float input_shared[IN_TILE_DIM][IN_TILE_DIM][IN_TILE_DIM];
     if (out_z_index >= 0 && out_z_index < size
