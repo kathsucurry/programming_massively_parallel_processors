@@ -31,14 +31,9 @@ void HistogramPrivateKernel(
     if (blockIdx.x > 0) {
         __syncthreads();
 
-        // Run computation only when thread index is 0 since it already iterates through
-        // all the bins of the block.
-        if (threadIdx.x > 0)
-            return;
-
         // Add all the values in private copy into the version produced by block 0.
-        // Note that we want to iterate from one thread to the next block of that thread
-        for (unsigned int bin=0; bin<NUM_BINS; bin += 1) {
+        // Note that the max thread index >= NUM_BINS.
+        for (unsigned int bin=threadIdx.x; bin<NUM_BINS; bin += blockDim.x) {
             unsigned int bin_value = histogram[blockIdx.x*NUM_BINS + bin];
             if (bin_value > 0)
                 atomicAdd(&(histogram[bin]), bin_value);
