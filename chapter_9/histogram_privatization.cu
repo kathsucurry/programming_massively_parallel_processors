@@ -59,6 +59,7 @@ void generateHistogram(
     unsigned int dim_grid = ceil(length * 1.0 / BLOCK_SIZE);
 
     size_t size_histogram_with_private = dim_grid*NUM_BINS * sizeof(int);
+    size_t size_histogram_original = NUM_BINS * sizeof(int);
 
     // Load and copy inputs to device memory.
     char *data_d;
@@ -79,7 +80,7 @@ void generateHistogram(
     );
 
     // Copy the output matrix from the device memory.
-    cudaMemcpy(histogram_h, histogram_d, size_histogram_with_private, cudaMemcpyDeviceToHost);
+    cudaMemcpy(histogram_h, histogram_d, size_histogram_original, cudaMemcpyDeviceToHost);
 
     // Free device vectors.
     cudaFree(data_d);
@@ -94,7 +95,7 @@ int main() {
 
     unsigned int length_histogram = NUM_BINS; 
 
-    unsigned int histogram[21] = {0};
+    unsigned int histogram[length_histogram] = {0};
 
     generateHistogram(
         input,
