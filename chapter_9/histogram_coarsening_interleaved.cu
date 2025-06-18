@@ -8,7 +8,7 @@
 
 
 /**
- *  Perform histogram with privatization using shared memory, corresponds to Fig. 9.10.
+ *  Perform histogram with coarsening using interleaved partitioning, corresponds to Fig. 9.14.
  */
 __global__
 void HistogramPrivateKernel(
@@ -22,8 +22,9 @@ void HistogramPrivateKernel(
         histogram_shared[bin] = 0u;
     __syncthreads();
 
-    unsigned int index = blockIdx.x*blockDim.x + threadIdx.x;
-    if (index < length) {
+    unsigned int index_start = blockIdx.x*blockDim.x + threadIdx.x;
+    // blockDim.x * gridDim.x = the total number of threads.
+    for (unsigned int index=index_start; index<length; index += blockDim.x*gridDim.x) {
         int character_hist_location = data[index] - 'a';
         // Ensure valid alphabet.
         if (character_hist_location >= 0 && character_hist_location < 26)
@@ -32,6 +33,7 @@ void HistogramPrivateKernel(
     }
     __syncthreads();
 
+    // Store to the global memory, with the assumption where NUM_BINS < blockDIM.x.
     for (unsigned int bin = threadIdx.x; bin < NUM_BINS; bin += blockDim.x) {
         unsigned int bin_value = histogram_shared[bin];
         if (bin_value > 0)
@@ -60,7 +62,7 @@ void generateHistogram(
 
     // Invoke kernel.
     dim3 dimBlock(BLOCK_SIZE);
-    dim3 dimGrid(ceil(length / (BLOCK_SIZE * 1.0)));
+    dim3 dimGrid(1);
     HistogramPrivateKernel<<<dimGrid, dimBlock>>>(
         data_d,
         length,

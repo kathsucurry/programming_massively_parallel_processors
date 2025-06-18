@@ -5,10 +5,11 @@
 #define BLOCK_SIZE 16
 // 26 alphabets divided into bins where each bin is for 4 consecutive alphabets.
 #define NUM_BINS 7
+#define COARSE_FACTOR 3
 
 
 /**
- *  Perform histogram with privatization using shared memory, corresponds to Fig. 9.10.
+ *  Perform histogram with coarsening using contiguous partitioning, corresponds to Fig. 9.12.
  */
 __global__
 void HistogramPrivateKernel(
@@ -22,8 +23,9 @@ void HistogramPrivateKernel(
         histogram_shared[bin] = 0u;
     __syncthreads();
 
-    unsigned int index = blockIdx.x*blockDim.x + threadIdx.x;
-    if (index < length) {
+    // index_offset below refers to the index of the segment (of elements).
+    unsigned int index_offset = blockIdx.x*blockDim.x + threadIdx.x;
+    for (unsigned int index=index_offset*COARSE_FACTOR; index<min((index_offset+1)*COARSE_FACTOR, length); ++index) {
         int character_hist_location = data[index] - 'a';
         // Ensure valid alphabet.
         if (character_hist_location >= 0 && character_hist_location < 26)
@@ -32,6 +34,7 @@ void HistogramPrivateKernel(
     }
     __syncthreads();
 
+    // Store to the global memory, with the assumption where NUM_BINS < blockDIM.x.
     for (unsigned int bin = threadIdx.x; bin < NUM_BINS; bin += blockDim.x) {
         unsigned int bin_value = histogram_shared[bin];
         if (bin_value > 0)
@@ -60,7 +63,7 @@ void generateHistogram(
 
     // Invoke kernel.
     dim3 dimBlock(BLOCK_SIZE);
-    dim3 dimGrid(ceil(length / (BLOCK_SIZE * 1.0)));
+    dim3 dimGrid(ceil(length * 1.0 / BLOCK_SIZE / COARSE_FACTOR));
     HistogramPrivateKernel<<<dimGrid, dimBlock>>>(
         data_d,
         length,
