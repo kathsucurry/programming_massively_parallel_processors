@@ -5,6 +5,8 @@
 #define BLOCK_SIZE 16
 // 26 alphabets divided into bins where each bin is for 4 consecutive alphabets.
 #define NUM_BINS 7
+// The coarse factor is used to determine how many blocks.
+#define COARSE_FACTOR 3
 
 
 /**
@@ -62,7 +64,7 @@ void generateHistogram(
 
     // Invoke kernel.
     dim3 dimBlock(BLOCK_SIZE);
-    dim3 dimGrid(1);
+    dim3 dimGrid(length / COARSE_FACTOR);
     HistogramPrivateKernel<<<dimGrid, dimBlock>>>(
         data_d,
         length,
