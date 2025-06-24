@@ -1,9 +1,9 @@
 #include <stdio.h>
 #include <cuda_runtime.h>
 
-#define INPUT_SIZE 20
+#define INPUT_SIZE 1024
 // BLOCK_SIZE = ceil(INPUT_SIZE / 2.0).
-#define BLOCK_SIZE 10
+#define BLOCK_SIZE 512
 
 
 /**
@@ -19,7 +19,7 @@ void SumReductionSharedMemory(
     input_shared[index] = input_array[index] + input_array[index + BLOCK_SIZE];
 
     // For handling odd size values.
-    unsigned int previous_stride = INPUT_SIZE;
+    unsigned int previous_stride = BLOCK_SIZE;
     for (unsigned int stride = ceil(blockDim.x / 2.0); stride >= 1; stride = ceil(stride / 2.0)) {
         __syncthreads();
         if (threadIdx.x + stride < previous_stride) {

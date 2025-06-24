@@ -56,7 +56,7 @@ void runSumReduction(
 
 
 int main() {
-    unsigned int input_size = 20;
+    unsigned int input_size = 1024;
     float input_array[input_size];
     float output_value;
 
