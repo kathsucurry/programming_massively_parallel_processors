@@ -3,35 +3,34 @@
 
 #define INPUT_SIZE 10000
 #define BLOCK_SIZE 1024
+#define COARSE_FACTOR 2
 
 
 /**
- *  Perform multiblock sum reduction, corresponds to Fig. 10.13.
+ *  Perform multiblock sum reduction with thread coarsening, corresponds to Fig. 10.15.
+ * 
+ *  Note: it only works for input arrays with length of the power of two.
  */
 __global__
-void SegmentedSumReduction(
+void CoarsenedSumReduction(
     float* input_array,
     float* output_value
 ) {
     __shared__ float input_shared[BLOCK_SIZE];
-    // Each block processes 2 * blockDim.x;
-    unsigned int segment = 2*blockDim.x*blockIdx.x;
+    // Each block processes COARSE_FACTOR * 2 * blockDim.x * COARSE_FACTOR;
+    unsigned int segment = COARSE_FACTOR*2*blockDim.x*blockIdx.x;
     unsigned int index = segment + threadIdx.x;
     unsigned int shared_index = threadIdx.x;
 
-    input_shared[shared_index] = input_array[index] + input_array[index + BLOCK_SIZE];
+    float sum = input_array[index];
+    for (unsigned int tile = 1; tile < COARSE_FACTOR*2; ++tile)
+        sum += input_array[index + tile*BLOCK_SIZE];
+    input_shared[shared_index] = sum;
 
-    // For handling odd size values.
-    unsigned int previous_stride = BLOCK_SIZE;
-    for (unsigned int stride = ceil(blockDim.x / 2.0); stride >= 1; stride = ceil(stride / 2.0)) {
+    for (unsigned int stride = blockDim.x/2; stride >= 1; stride/=2) {
         __syncthreads();
-        if (threadIdx.x + stride < previous_stride) {
+        if (shared_index < stride) 
             input_shared[shared_index] += input_shared[shared_index + stride];
-        }
-        // Since ceil(stride / 2.0) = 1, we need to ensure that the loops eventually ends.
-        if (stride == 1)
-            break;
-        previous_stride = stride;
     }
     if (shared_index == 0) {
         atomicAdd(output_value, input_shared[0]);
@@ -56,8 +55,8 @@ void runSumReduction(
 
     // Invoke kernel.
     dim3 dimBlock(BLOCK_SIZE);
-    dim3 dimGrid(ceil(INPUT_SIZE / 2.0 / BLOCK_SIZE));
-    SegmentedSumReduction<<<dimGrid, dimBlock>>>(input_array_d, output_value_d);
+    dim3 dimGrid(ceil(INPUT_SIZE / (2.0 * BLOCK_SIZE * COARSE_FACTOR)));
+    CoarsenedSumReduction<<<dimGrid, dimBlock>>>(input_array_d, output_value_d);
 
     // Copy the output matrix from the device memory.
     cudaMemcpy(output_value_h, output_value_d, size_output, cudaMemcpyDeviceToHost);
