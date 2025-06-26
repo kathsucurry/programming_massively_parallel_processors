@@ -1,20 +1,20 @@
 #include <stdio.h>
 #include <cuda_runtime.h>
 
-#define INPUT_SIZE 8192
+#define INPUT_SIZE 5891
 #define BLOCK_SIZE 1024
 #define COARSE_FACTOR 2
 
 
 /**
- *  Perform multiblock sum reduction with thread coarsening, corresponds to Fig. 10.15.
- * 
- *  Note: it only works for input arrays with length of the power of two.
+ *  Perform multiblock sum reduction with thread coarsening for arbitrary input length,
+ *  corresponds to Exercise 5.
  */
 __global__
 void CoarsenedSumReduction(
     float* input_array,
-    float* output_value
+    float* output_value,
+    unsigned int input_size
 ) {
     __shared__ float input_shared[BLOCK_SIZE];
     // Each block processes COARSE_FACTOR * 2 * blockDim.x * COARSE_FACTOR;
@@ -22,9 +22,14 @@ void CoarsenedSumReduction(
     unsigned int index = segment + threadIdx.x;
     unsigned int shared_index = threadIdx.x;
 
+    if (index >= input_size)
+        return;
+
     float sum = input_array[index];
-    for (unsigned int tile = 1; tile < COARSE_FACTOR*2; ++tile)
-        sum += input_array[index + tile*BLOCK_SIZE];
+    for (unsigned int tile = 1; tile < COARSE_FACTOR*2; ++tile) {
+        if (index + tile*BLOCK_SIZE < input_size)
+            sum += input_array[index + tile*BLOCK_SIZE];
+    }
     input_shared[shared_index] = sum;
 
     for (unsigned int stride = blockDim.x/2; stride >= 1; stride/=2) {
@@ -56,7 +61,7 @@ void runSumReduction(
     // Invoke kernel.
     dim3 dimBlock(BLOCK_SIZE);
     dim3 dimGrid(ceil(INPUT_SIZE / (2.0 * BLOCK_SIZE * COARSE_FACTOR)));
-    CoarsenedSumReduction<<<dimGrid, dimBlock>>>(input_array_d, output_value_d);
+    CoarsenedSumReduction<<<dimGrid, dimBlock>>>(input_array_d, output_value_d, INPUT_SIZE);
 
     // Copy the output matrix from the device memory.
     cudaMemcpy(output_value_h, output_value_d, size_output, cudaMemcpyDeviceToHost);
