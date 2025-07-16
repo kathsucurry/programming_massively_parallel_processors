@@ -66,7 +66,7 @@ void KoggeStoneScanWithThreadCoarseningKernel(
 
 void runParallelInclusiveScan(
     float* input_array_h,
-    float* output_value_h,
+    float* output_array_h,
     unsigned int size
 ) {
     // Get size in bytes.
@@ -74,24 +74,24 @@ void runParallelInclusiveScan(
     size_t size_output = size * sizeof(float);
 
     // Load and copy input_array and filter to device memory.
-    float * input_array_d, * output_value_d;
+    float * input_array_d, * output_array_d;
     
     cudaMalloc((void***)&input_array_d, size_input);
     cudaMemcpy(input_array_d, input_array_h, size_input, cudaMemcpyHostToDevice);
 
-    cudaMalloc((void***)&output_value_d, size_output);
+    cudaMalloc((void***)&output_array_d, size_output);
 
     // Invoke kernel.
     dim3 dimBlock(BLOCK_SIZE);
     dim3 dimGrid(1);
-    KoggeStoneScanWithThreadCoarseningKernel<<<dimGrid, dimBlock>>>(input_array_d, output_value_d, size);
+    KoggeStoneScanWithThreadCoarseningKernel<<<dimGrid, dimBlock>>>(input_array_d, output_array_d, size);
 
     // Copy the output matrix from the device memory.
-    cudaMemcpy(output_value_h, output_value_d, size_output, cudaMemcpyDeviceToHost);
+    cudaMemcpy(output_array_h, output_array_d, size_output, cudaMemcpyDeviceToHost);
 
     // Free device vectors.
     cudaFree(input_array_d);
-    cudaFree(output_value_d);
+    cudaFree(output_array_d);
 }
 
 
