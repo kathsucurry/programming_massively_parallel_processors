@@ -8,7 +8,7 @@
 
 
 /**
- *  Perform Kogge-Stone kernel for exclusive (segmented) scan, corresponds to section 11.2.
+ *  Perform Kogge-Stone kernel for exclusive (segmented) scan, corresponds to section 11.2 and exercise 7.
  */
 __global__
 void KoggeStoneExclusiveScanKernel(

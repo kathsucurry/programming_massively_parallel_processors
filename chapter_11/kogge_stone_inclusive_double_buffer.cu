@@ -9,6 +9,7 @@
 
 /**
  *  Perform Kogge-Stone kernel for inclusive (segmented) scan, corresponds to Fig. 11.3 with double-buffering implemented.
+ *  Corresponds to exercise 2.
  */
 __global__
 void KoggeStoneScanDoubleBufferKernel(

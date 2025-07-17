@@ -1,5 +1,5 @@
 /**
- *  Perform segmented parallel scan for arbitrary-length inputs, corresponds to chapter 11.6.
+ *  Perform segmented parallel scan for arbitrary-length inputs, corresponds to chapter 11.6 and exercise 8.
  *  Utilizes Kogge-Stone algorithm for simplicity.
  */
 
