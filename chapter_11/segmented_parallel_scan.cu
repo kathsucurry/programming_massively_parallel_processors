@@ -164,7 +164,7 @@ void runSegmentedParallelScan(
     // Invoke kernel 3.
     UpdateOutputArrayKernel<<<dimKernel1Grid, dimKernel1Block>>>(output_array_d, last_block_element_array_d, size);
 
-    // Copy the output matrix from the device memory.
+    // Copy the output array from the device memory.
     cudaMemcpy(output_array_h, output_array_d, size_output, cudaMemcpyDeviceToHost);
 
     // Free device vectors.
