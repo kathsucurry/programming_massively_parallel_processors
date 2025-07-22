@@ -7,9 +7,8 @@
 #include <cuda_runtime.h>
 
 #define THREADS_NUM_PER_BLOCK 3
-#define BLOCKS_NUM_PER_GRID 3
-// TILE_SIZE has to be divisible by THREADS_NUM_PER_BLOCK.
-#define TILE_SIZE 6
+#define BLOCKS_NUM_PER_GRID 4
+#define TILE_SIZE 3
 
 
 __device__
@@ -128,20 +127,29 @@ void MergeTiledKernel(int* A, int m, int* B, int n, int* C, int tile_size) {
     int B_consumed = 0;
 
     while (iter_counter < iter_total) {
+        // To be used by the last iteration where the remaining elements < tile_size.
+        int updated_tile_size = min(tile_size, C_length - C_completed);
         // Load tile_size A and B into shared memory.
-        for (int i = 0; i < tile_size; i += blockDim.x) {
+        for (int i = 0; i < updated_tile_size; i += blockDim.x) {
             if (i + threadIdx.x < A_length - A_consumed)
                 A_shared[i + threadIdx.x] = A[A_current + A_consumed + i + threadIdx.x];
         }
-        for (int i = 0; i < tile_size; i += blockDim.x) {
+        for (int i = 0; i < updated_tile_size; i += blockDim.x) {
             if (i + threadIdx.x < B_length - B_consumed)
                 B_shared[i + threadIdx.x] = B[B_current + B_consumed + i + threadIdx.x];
         }
         __syncthreads();
 
         // tile_size / blockDim.x produces the number of elements per thread.
-        int c_current = threadIdx.x  * (tile_size / blockDim.x);
-        int c_next = (threadIdx.x+1) * (tile_size / blockDim.x);
+        int c_current = threadIdx.x  * (updated_tile_size/blockDim.x);
+        int c_next = (threadIdx.x+1) * (updated_tile_size/blockDim.x);
+
+        // Handle cases where updated_tile_size is not divisible by the number of threads.
+        if (updated_tile_size % blockDim.x > 0) {
+            if (threadIdx.x > 0)
+                c_current += updated_tile_size % blockDim.x;
+            c_next += updated_tile_size % blockDim.x;
+        }
 
         c_current = (c_current <= C_length - C_completed) ? c_current : C_length - C_completed;
         c_next = (c_next <= C_length - C_completed) ? c_next : C_length - C_completed;
@@ -161,9 +169,12 @@ void MergeTiledKernel(int* A, int m, int* B, int n, int* C, int tile_size) {
         
         // Update the number of A and B elements that have been consumed so far.
         iter_counter++;
-        C_completed += tile_size;
+        C_completed += updated_tile_size;
         // Added one modification to the code in the book: ensure correct length for A_shared and B_shared.
-        A_consumed += obtainCoRank(tile_size, A_shared, min(tile_size, A_length-A_consumed), B_shared, min(tile_size, B_length-B_consumed));
+        A_consumed += obtainCoRank(
+            updated_tile_size,
+            A_shared, min(tile_size, A_length-A_consumed),
+            B_shared, min(tile_size, B_length-B_consumed));
         B_consumed = C_completed - A_consumed;
         __syncthreads();
     }
@@ -227,9 +238,6 @@ int main() {
 
     runBasicMerge(A, m, B, n, C);
 
-    // for (int i = 0; i < m+n; ++i)
-    //     printf("%d ", C[i]);
-
     // Compare output.
     bool all_identical = true;
     for (int i = 0; i < m+n; ++i) {
@@ -242,5 +250,10 @@ int main() {
     if (all_identical)
         printf("All elements are identical; the kernel implementation should be correct.");
 
+    printf("\n");
+
+    // for (int i = 0; i < m+n; ++i) {
+    //     printf("%d %d %b\n", C[i], C_expected[i], C[i] == C_expected[i]);
+    // }
     return 0;
 }
