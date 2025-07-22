@@ -9,7 +9,7 @@
 
 
 /**
- * Retrieve the co-rank using binary search, i.e., the beginning positions of A and B that will be
+ * Retrieve the co-rank using binary search, i.e., the begining positions of A and B that will be
  * merged into C that is assigned to the thread.
  * 
  * @param k The rank of the C element of interest, i.e., the start of the output index.
@@ -20,7 +20,7 @@
  * 
  */
 __device__
-int ObtainCoRank(int k, int* A, int m, int* B, int n) {
+int obtainCoRank(int k, int* A, int m, int* B, int n) {
     // Initialize the co-rank values, i.e., the highest possible values.
     int i = k < m ? k : m; // i = min(k, m)
     int j = k - i;
@@ -54,7 +54,7 @@ int ObtainCoRank(int k, int* A, int m, int* B, int n) {
 
 
 __device__
-void RunMergeSequential(int* A, int m, int* B, int n, int* C) {
+void runMergeSequential(int* A, int m, int* B, int n, int* C) {
     int i = 0; // Index to A.
     int j = 0; // Index to B;
     int k = 0; // Index to C / output array;
@@ -76,7 +76,7 @@ void RunMergeSequential(int* A, int m, int* B, int n, int* C) {
 
 
 __device__
-int KernelCeil(int x, int y) {
+int runKernelDivCeil(int x, int y) {
     if (x % y == 0)
         return x / y;
     return x / y + 1;
@@ -86,19 +86,19 @@ int KernelCeil(int x, int y) {
 __global__
 void MergeBasicKernel(int* A, int m, int* B, int n, int* C) {
     int thread_index = blockIdx.x * blockDim.x + threadIdx.x;
-    int elements_per_thread = KernelCeil(m + n, blockDim.x*gridDim.x);
+    int elements_per_thread = runKernelDivCeil(m + n, blockDim.x*gridDim.x);
     
     // Define the start and end output indices.
     int k_current = thread_index*elements_per_thread;
     int k_next = min(k_current+elements_per_thread, m+n);
 
-    int i_current = ObtainCoRank(k_current, A, m, B, n);
-    int i_next = ObtainCoRank(k_next, A, m, B, n);
+    int i_current = obtainCoRank(k_current, A, m, B, n);
+    int i_next = obtainCoRank(k_next, A, m, B, n);
 
     int j_current = k_current - i_current;
     int j_next = k_next - i_next;
 
-    RunMergeSequential(
+    runMergeSequential(
         &A[i_current],
         i_next - i_current,
         &B[j_current],
