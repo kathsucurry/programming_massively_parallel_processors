@@ -108,7 +108,7 @@ void MergeBasicKernel(int* A, int m, int* B, int n, int* C) {
 }
 
 
-void runBasicMerge(int* A_h, int m, int* B_h, int n, int* C_h) {
+void runMerge(int* A_h, int m, int* B_h, int n, int* C_h) {
     // Get size in bytes.
     size_t size_A = m * sizeof(int);
     size_t size_B = n * sizeof(int);
@@ -146,7 +146,7 @@ int main() {
     int B[] = {7, 10, 10, 12};
     int C[m + n];
 
-    runBasicMerge(A, m, B, n, C);
+    runMerge(A, m, B, n, C);
 
     // Print output.
     for (int i = 0; i < m+n; ++i) {

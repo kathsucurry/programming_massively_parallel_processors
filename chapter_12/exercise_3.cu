@@ -1,5 +1,9 @@
 /**
- *  Perform tiled merge kernel, corresponds to chapter 12.6.
+ * Perform tiled merge kernel with modifications, corresponds to exercise 3.
+ * The modifications include:
+ * 1. MODIFICATION 1: Reduce the shared memory length to just tile_size instead of 2*tile_size.
+ * 2. MODIFICATION 2: Call co-rank function to get the A and B elements to be consumed.
+ * 
  */
 
 #include <stdlib.h>
@@ -8,7 +12,7 @@
 
 #define THREADS_NUM_PER_BLOCK 3
 #define BLOCKS_NUM_PER_GRID 4
-#define TILE_SIZE 3
+#define TILE_SIZE 4
 
 
 __device__
@@ -89,9 +93,10 @@ void runMergeSequential(int* A, int m, int* B, int n, int* C) {
 __global__
 void MergeTiledKernel(int* A, int m, int* B, int n, int* C, int tile_size) {
     // Allocate shared memory.
+    // MODIFICATION 1.2: at this point, we don't know where the B_shared should start.
     extern __shared__ int AB_shared[];
-    int *A_shared = &AB_shared[0]; // First half of AB_shared.
-    int *B_shared = &AB_shared[tile_size]; // Second half of AB_shared.
+    int *A_shared = &AB_shared[0];
+    int *B_shared;
 
     // Define the start and end point of the block's C subarray.
     int C_current = blockIdx.x * runKernelDivCeil(m+n, gridDim.x);
@@ -101,14 +106,14 @@ void MergeTiledKernel(int* A, int m, int* B, int n, int* C, int tile_size) {
         // Obtain the block-level co-rank values and make them visible to other threads.
         // Note that we only need these values at the beginning until they're used by
         // A_current and A_next.
-        A_shared[0] = obtainCoRank(C_current, A, m, B, n);
-        A_shared[1] = obtainCoRank(C_next, A, m, B, n);
+        AB_shared[0] = obtainCoRank(C_current, A, m, B, n);
+        AB_shared[1] = obtainCoRank(C_next, A, m, B, n);
     }
-    // Ensure A_shared updates are visible to all threads.
+    // Ensure AB_shared updates are visible to all threads.
     __syncthreads();
 
-    int A_current = A_shared[0]; // start index of A in the block.
-    int A_next = A_shared[1];
+    int A_current = AB_shared[0]; // start index of A in the block.
+    int A_next = AB_shared[1];
 
     int B_current = C_current - A_current; // start index of B in the block.
     int B_next = C_next - A_next;
@@ -129,17 +134,27 @@ void MergeTiledKernel(int* A, int m, int* B, int n, int* C, int tile_size) {
     while (iter_counter < iter_total) {
         // To be used by the last iteration where the remaining elements < tile_size.
         int updated_tile_size = min(tile_size, C_length - C_completed);
-        // Load tile_size A and B into shared memory.
-        for (int i = 0; i < updated_tile_size; i += blockDim.x) {
+
+        // MODIFICATION 2.
+        int A_to_be_consumed = obtainCoRank(
+            updated_tile_size,
+            &A[A_current+A_consumed], min(updated_tile_size, A_length-A_consumed),
+            &B[B_current+B_consumed], min(updated_tile_size, B_length-B_consumed));
+        int B_to_be_consumed = updated_tile_size - A_to_be_consumed;
+
+        B_shared = &AB_shared[A_to_be_consumed];
+
+        for (int i = 0; i < A_to_be_consumed; i += blockDim.x) {
             if (i + threadIdx.x < A_length - A_consumed)
                 A_shared[i + threadIdx.x] = A[A_current + A_consumed + i + threadIdx.x];
         }
-        for (int i = 0; i < updated_tile_size; i += blockDim.x) {
+        for (int i = 0; i < B_to_be_consumed; i += blockDim.x) {
             if (i + threadIdx.x < B_length - B_consumed)
                 B_shared[i + threadIdx.x] = B[B_current + B_consumed + i + threadIdx.x];
         }
         __syncthreads();
 
+        // Compute c_current and c_next for the individual thread.
         // tile_size / blockDim.x produces the number of elements per thread.
         int c_current = threadIdx.x  * (updated_tile_size/blockDim.x);
         int c_next = (threadIdx.x+1) * (updated_tile_size/blockDim.x);
@@ -155,14 +170,14 @@ void MergeTiledKernel(int* A, int m, int* B, int n, int* C, int tile_size) {
         c_next = (c_next <= C_length - C_completed) ? c_next : C_length - C_completed;
 
         // Find co-rank for c_current and c_next.
-        int a_current = obtainCoRank(c_current, A_shared, min(updated_tile_size, A_length-A_consumed),
-                                        B_shared, min(updated_tile_size, B_length-B_consumed));
+        int a_current = obtainCoRank(c_current, A_shared, A_to_be_consumed,
+                                        B_shared, B_to_be_consumed);
         int b_current = c_current - a_current;
 
-        int a_next = obtainCoRank(c_next, A_shared, min(updated_tile_size, A_length-A_consumed),
-                                        B_shared, min(updated_tile_size, B_length-B_consumed));
+        int a_next = obtainCoRank(c_next, A_shared, A_to_be_consumed,
+                                        B_shared, B_to_be_consumed);
         int b_next = c_next - a_next;
-
+        
         // All threads call the sequential merge function.
         runMergeSequential(&A_shared[a_current], a_next-a_current, &B_shared[b_current], b_next-b_current,
                                 &C[C_current+C_completed+c_current]);
@@ -170,11 +185,7 @@ void MergeTiledKernel(int* A, int m, int* B, int n, int* C, int tile_size) {
         // Update the number of A and B elements that have been consumed so far.
         iter_counter++;
         C_completed += updated_tile_size;
-        // Added one modification to the code in the book: ensure correct length for A_shared and B_shared.
-        A_consumed += obtainCoRank(
-            updated_tile_size,
-            A_shared, min(updated_tile_size, A_length-A_consumed),
-            B_shared, min(updated_tile_size, B_length-B_consumed));
+        A_consumed += A_to_be_consumed;
         B_consumed = C_completed - A_consumed;
         __syncthreads();
     }
@@ -186,7 +197,8 @@ void runMerge(int* A_h, int m, int* B_h, int n, int* C_h) {
     size_t size_A = m * sizeof(int);
     size_t size_B = n * sizeof(int);
     size_t size_C = size_A + size_B;
-    unsigned shared_memory_size = sizeof(int) * TILE_SIZE * 2;
+    // MODIFICATION 1.1.
+    unsigned shared_memory_size = sizeof(int) * TILE_SIZE;
 
     // Load and copy host variables to device memory.
     int *A_d, *B_d, *C_d;

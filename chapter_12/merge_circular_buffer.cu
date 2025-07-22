@@ -165,7 +165,6 @@ void MergeCircularBufferKernel(int* A, int m, int* B, int n, int* C, int tile_si
         int updated_tile_size = min(tile_size, C_length - C_completed);
 
         // Load tile_size A and B into shared memory.
-        // TODO: incorporate updated_tile_size since A_shared_consumed assume tile_size.
         for (int i = 0; i < min(updated_tile_size, A_shared_consumed); i += blockDim.x) {
             if (i + threadIdx.x < A_length - A_consumed && i + threadIdx.x < A_shared_consumed)
                 A_shared[(A_shared_start+(tile_size-A_shared_consumed)+i+threadIdx.x)%tile_size] = A[A_current+A_consumed+tile_size-A_shared_consumed+i+threadIdx.x];
@@ -238,7 +237,7 @@ void MergeCircularBufferKernel(int* A, int m, int* B, int n, int* C, int tile_si
 }
 
 
-void runBasicMerge(int* A_h, int m, int* B_h, int n, int* C_h) {
+void runMerge(int* A_h, int m, int* B_h, int n, int* C_h) {
     // Get size in bytes.
     size_t size_A = m * sizeof(int);
     size_t size_B = n * sizeof(int);
@@ -293,7 +292,7 @@ int main() {
     }
     std::qsort(C_expected, m+n, sizeof(int), compareIntPointer);
 
-    runBasicMerge(A, m, B, n, C);
+    runMerge(A, m, B, n, C);
 
     // Compare output.
     bool all_identical = true;
