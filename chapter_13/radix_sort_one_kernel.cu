@@ -195,6 +195,7 @@ void runRadixSort(
     cudaFree(bits_d);
     cudaFree(block_scan_values_d);
     cudaFree(block_flags_d);
+    cudaFree(block_gate_d);
 }
 
 
