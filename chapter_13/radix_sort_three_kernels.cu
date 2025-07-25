@@ -1,6 +1,10 @@
 /**
  *  Perform radix sort, corresponds to chapter 13.3.
  *  Note that instead of using exclusive scan, the implementation here uses inclusive scan.
+ * 
+ *  Things to try for potential improvements can be found in radix_sort_one_kernel.cu:
+ *  - remove global device variable and pass them as kernel arguments instead
+ *  - use cudaMemset to re-initialize the variables above
  */
 
 #include <stdio.h>
@@ -15,7 +19,7 @@
 #define SORT_THREADS_NUM_PER_BLOCK 4
 #define SORT_BLOCK_NUM INPUT_LENGTH / SORT_THREADS_NUM_PER_BLOCK
 
-
+// Global device variables to be used by the scan function.
 __device__ unsigned int block_counter;
 __device__ unsigned int block_scan_values[SCAN_BLOCK_NUM];
 __device__ unsigned int flags[SCAN_BLOCK_NUM];
@@ -210,7 +214,6 @@ void runRadixSort(
         GenerateBitsFromArrayKernel<<<dimSortSortGrid, dimSortBlock>>>(input_d, bits_d, N, i);
         SinglePassInclusiveScanKernel<<<dimScanGrid, dimScanBlock>>>(bits_d, scan_results_d, N);
         RadixSortKernel<<<dimSortSortGrid, dimSortBlock>>>(input_d, output_d, scan_results_d, N, i);
-        cudaMemcpy(output_h, output_d, size_array, cudaMemcpyDeviceToHost);
         if (i < bit_counter - 1) {
             // Swap input_d and output_d memory location such that input_d stores the values (and memory address) of output_d.
             unsigned int* temp = input_d;
@@ -232,9 +235,6 @@ void runRadixSort(
 
 int main() {
     unsigned int input[] = {12, 3, 6, 9, 15, 8, 5, 10, 9, 6, 11, 13, 4, 10, 7, 0};
-    // unsigned int input[] = {12, 6, 8, 10, 6, 4, 10, 0, 3, 9, 15, 5, 9, 11, 13, 7};
-    // unsigned int input[] = {12, 8, 4, 0, 9, 5, 9, 13, 6, 10, 6, 10, 3, 15, 11, 7};
-    // unsigned int input[] = {8, 0, 9, 9, 10, 10, 3, 11, 12, 4, 5, 13, 6, 6, 15, 7};
     unsigned int N = INPUT_LENGTH;
     unsigned int output[N];
 
