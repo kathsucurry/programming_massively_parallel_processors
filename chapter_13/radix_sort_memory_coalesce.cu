@@ -45,8 +45,7 @@ void runInclusiveScanAcrossBlocks(
     unsigned int value1,
     unsigned int value2,
     unsigned int* block_bucket_scan_values,
-    unsigned int* block_flags,
-    unsigned int* block_gate
+    unsigned int* block_flags
 ) {
     block_bucket_scan_values[blockIdx.x] = value1;
     block_bucket_scan_values[blockIdx.x + gridDim.x] = value2;
@@ -71,8 +70,6 @@ void runInclusiveScanAcrossBlocks(
         atomicAdd(&block_flags[blockIdx.x], 1);
     }
     __syncthreads();
-
-    atomicAdd(&block_gate[0], 1);
 }
 
 
@@ -82,7 +79,6 @@ void RadixSortMemoryCoalescedKernel(
     unsigned int* output,
     unsigned int* block_bucket_scan_values,
     unsigned int* block_flags,
-    unsigned int* block_gate,
     unsigned int N,
     unsigned int iter
 ) {
@@ -130,11 +126,10 @@ void RadixSortMemoryCoalescedKernel(
             block_size - local_bits_array[block_size-1],
             local_bits_array[block_size-1],
             block_bucket_scan_values,
-            block_flags,
-            block_gate
+            block_flags
         );
 
-    while (atomicAdd(&block_gate[0], 0) < gridDim.x) {}
+    while (atomicAdd(&block_flags[gridDim.x - 1], 0) == 0) {}
 
     // Store the element in global memory.
     unsigned int beginning_position;
@@ -163,7 +158,7 @@ void runRadixSort(
     size_t size_array_block = BLOCK_NUM * sizeof(unsigned int);
 
     // Load and copy host variables to device memory.
-    unsigned int *input_d, *output_d, *block_bucket_scan_values_d, *block_flags_d, *block_gate_d;
+    unsigned int *input_d, *output_d, *block_bucket_scan_values_d, *block_flags_d;
 
     cudaMalloc((void***)&input_d, size_array);
     cudaMemcpy(input_d, input_h, size_array, cudaMemcpyHostToDevice);
@@ -171,7 +166,6 @@ void runRadixSort(
     cudaMalloc((void***)&output_d, size_array);
     cudaMalloc((void***)&block_bucket_scan_values_d, size_array_block*2);
     cudaMalloc((void***)&block_flags_d, size_array_block);
-    cudaMalloc((void***)&block_gate_d, sizeof(unsigned int));
 
     // Get the total number of iterations.
     // 1. Get the max value across all input elements.
@@ -193,13 +187,11 @@ void runRadixSort(
         // Initialize the block scan values and flags for each iteration.
         cudaMemset(block_bucket_scan_values_d, 0, size_array_block*2);
         cudaMemset(block_flags_d, 0, size_array_block);
-        cudaMemset(block_gate_d, 0, sizeof(unsigned int));
         
         RadixSortMemoryCoalescedKernel<<<dimGrid, dimBlock>>>(
             input_d, output_d,
             block_bucket_scan_values_d,
             block_flags_d,
-            block_gate_d,
             N, i);
         
         // Comment out the printing below for debugging purposes.
@@ -226,13 +218,11 @@ void runRadixSort(
     cudaFree(output_d);
     cudaFree(block_bucket_scan_values_d);
     cudaFree(block_flags_d);
-    cudaFree(block_gate_d);
 }
 
 
 int main() {
     unsigned int input[] = {12, 3, 6, 9, 15, 8, 5, 10, 9, 6, 11, 13, 4, 10, 7, 0};
-    // unsigned int input[] = {12, 6, 8, 10, 6, 4, 10, 0, 3, 9, 15, 5, 9, 11, 13, 7};
     unsigned int N = INPUT_LENGTH;
     unsigned int output[N];
 
