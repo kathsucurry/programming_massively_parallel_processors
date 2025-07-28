@@ -42,15 +42,11 @@ void runLocalInclusiveScan(
 
 __device__
 void runInclusiveScanAcrossBlocks(
-    unsigned int value1,
-    unsigned int value2,
     unsigned int* block_bucket_scan_values,
+    unsigned int* block_scan_gate,
     unsigned int* block_flags
 ) {
-    block_bucket_scan_values[blockIdx.x] = value1;
-    block_bucket_scan_values[blockIdx.x + gridDim.x] = value2;
-    __syncthreads();
-    
+    while (atomicAdd(&block_scan_gate[0], 0) < BLOCK_NUM - 1) {}
     if (blockIdx.x == 0) {
         block_bucket_scan_values[1] += block_bucket_scan_values[0];
         atomicAdd(&(block_flags[blockIdx.x]), 1);
@@ -69,7 +65,6 @@ void runInclusiveScanAcrossBlocks(
         // Update the flag.
         atomicAdd(&block_flags[blockIdx.x], 1);
     }
-    __syncthreads();
 }
 
 
@@ -79,6 +74,7 @@ void RadixSortMemoryCoalescedKernel(
     unsigned int* output,
     unsigned int* block_bucket_scan_values,
     unsigned int* block_flags,
+    unsigned int* block_scan_gate,
     unsigned int N,
     unsigned int iter
 ) {
@@ -86,7 +82,7 @@ void RadixSortMemoryCoalescedKernel(
     
     // To be used for storing the bits values and the inclusive scan results.
     __shared__ unsigned int local_bits_array[THREADS_NUM_PER_BLOCK];
-    __shared__ unsigned int local_sorted_position[THREADS_NUM_PER_BLOCK];
+    __shared__ unsigned int local_sorted_array[THREADS_NUM_PER_BLOCK];
 
     // Compute the last block "size" (i.e., valid last thread index + 1) given N.
     __shared__ unsigned int block_size;
@@ -117,15 +113,17 @@ void RadixSortMemoryCoalescedKernel(
         unsigned int num_ones_total = local_bits_array[block_size - 1];
         unsigned int destination = (bit == 0) ? (threadIdx.x - num_ones_before)
                                               : (block_size - num_ones_total + num_ones_before);
-        local_sorted_position[threadIdx.x] = destination;
+        local_sorted_array[destination] = key;
     }
 
     // Compute the thread blocks' local bucket size.
     if (threadIdx.x == 0)
+        block_bucket_scan_values[blockIdx.x] = block_size - local_bits_array[block_size-1];
+        block_bucket_scan_values[blockIdx.x + gridDim.x] = local_bits_array[block_size-1];
+        atomicAdd(&block_scan_gate[0], 1);
         runInclusiveScanAcrossBlocks(
-            block_size - local_bits_array[block_size-1],
-            local_bits_array[block_size-1],
             block_bucket_scan_values,
+            block_scan_gate,
             block_flags
         );
 
@@ -133,6 +131,9 @@ void RadixSortMemoryCoalescedKernel(
 
     // Store the element in global memory.
     unsigned int beginning_position;
+    if (threadIdx.x < block_size)
+        bit = (local_sorted_array[threadIdx.x] >> iter) & 1;
+
     if (blockIdx.x == 0)
         beginning_position = (bit == 0) ? 0 : block_bucket_scan_values[gridDim.x - 1];
     else
@@ -140,10 +141,10 @@ void RadixSortMemoryCoalescedKernel(
                                         : block_bucket_scan_values[blockIdx.x + gridDim.x - 1];
     
     if (threadIdx.x < block_size) {
-        unsigned int global_destination = (bit == 0) ? local_sorted_position[threadIdx.x] + beginning_position
-                                                     : local_sorted_position[threadIdx.x] - (block_size - local_bits_array[block_size - 1]) + beginning_position;
+        unsigned int global_destination = (bit == 0) ? threadIdx.x + beginning_position
+                                                     : threadIdx.x - (block_size - local_bits_array[block_size - 1]) + beginning_position;
 
-        output[global_destination] = key;
+        output[global_destination] = local_sorted_array[threadIdx.x];
     }
 }
 
@@ -158,7 +159,7 @@ void runRadixSort(
     size_t size_array_block = BLOCK_NUM * sizeof(unsigned int);
 
     // Load and copy host variables to device memory.
-    unsigned int *input_d, *output_d, *block_bucket_scan_values_d, *block_flags_d;
+    unsigned int *input_d, *output_d, *block_bucket_scan_values_d, *block_flags_d, *block_scan_gate_d;
 
     cudaMalloc((void***)&input_d, size_array);
     cudaMemcpy(input_d, input_h, size_array, cudaMemcpyHostToDevice);
@@ -166,6 +167,7 @@ void runRadixSort(
     cudaMalloc((void***)&output_d, size_array);
     cudaMalloc((void***)&block_bucket_scan_values_d, size_array_block*2);
     cudaMalloc((void***)&block_flags_d, size_array_block);
+    cudaMalloc((void***)&block_scan_gate_d, sizeof(unsigned int));
 
     // Get the total number of iterations.
     // 1. Get the max value across all input elements.
@@ -187,11 +189,13 @@ void runRadixSort(
         // Initialize the block scan values and flags for each iteration.
         cudaMemset(block_bucket_scan_values_d, 0, size_array_block*2);
         cudaMemset(block_flags_d, 0, size_array_block);
+        cudaMemset(block_scan_gate_d, 0, sizeof(unsigned int));
         
         RadixSortMemoryCoalescedKernel<<<dimGrid, dimBlock>>>(
             input_d, output_d,
             block_bucket_scan_values_d,
             block_flags_d,
+            block_scan_gate_d,
             N, i);
         
         // Comment out the printing below for debugging purposes.
