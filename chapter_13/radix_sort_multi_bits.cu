@@ -1,14 +1,15 @@
 /**
- *  Perform radix sort with memory coalescing, corresponds to chapter 13.4.
- *  Note that instead of using exclusive scan, the implementation here uses inclusive scan.
+ *  Perform radix sort allowing for multi-bits, corresponds to chapter 13.5.
  */
-
+#include <cmath>
 #include <stdio.h>
 #include <cuda_runtime.h>
 
 #define INPUT_LENGTH 16
 #define THREADS_NUM_PER_BLOCK 4
 #define BLOCK_NUM ceil(INPUT_LENGTH * 1.0 / THREADS_NUM_PER_BLOCK)
+#define NUM_BITS 2
+#define BITS_POWER (int) std::pow(2, NUM_BITS)
 
 
 __device__
@@ -42,34 +43,39 @@ void runLocalInclusiveScan(
 
 __device__
 void runInclusiveScanAcrossBlocks(
-    unsigned int* block_bucket_scan_values,
     unsigned int* block_scan_gate,
+    unsigned int* block_bucket_scan_values,
     unsigned int* block_flags
 ) {
-    while (atomicAdd(&block_scan_gate[0], 0) < BLOCK_NUM - 1) {}
+    // Ensure block_bucket_scan_values is ready to use.
+    while (atomicAdd(&block_scan_gate[0], 0) < BLOCK_NUM - 1) {};
+    
     if (blockIdx.x == 0) {
-        block_bucket_scan_values[1] += block_bucket_scan_values[0];
+        for (int i = 1; i < BITS_POWER; ++i)
+            block_bucket_scan_values[i] += block_bucket_scan_values[i - 1];
+        __threadfence();
         atomicAdd(&(block_flags[blockIdx.x]), 1);
     }
         
-    unsigned int index1 = blockIdx.x * 2;
-    unsigned int index2 = blockIdx.x * 2 + 1;
     if (blockIdx.x > 0) {
         // Wait for the previous flag; recall that atomicAdd returns the original value.
         while (atomicAdd(&block_flags[blockIdx.x - 1], 0) == 0) {}
 
-        block_bucket_scan_values[index1] += block_bucket_scan_values[index1 - 1];;
-        block_bucket_scan_values[index2] += block_bucket_scan_values[index1];
+        for (int i = 0; i < BITS_POWER; ++i) {
+            unsigned int index = blockIdx.x * BITS_POWER + i;
+            block_bucket_scan_values[index] += block_bucket_scan_values[index - 1];
+        }
         __threadfence();
 
         // Update the flag.
         atomicAdd(&block_flags[blockIdx.x], 1);
     }
+    __syncthreads();
 }
 
 
 __global__
-void RadixSortMemoryCoalescedKernel(
+void RadixSortMultiBitsKernel(
     unsigned int* input,
     unsigned int* output,
     unsigned int* block_bucket_scan_values,
@@ -83,7 +89,13 @@ void RadixSortMemoryCoalescedKernel(
     // To be used for storing the bits values and the inclusive scan results.
     __shared__ unsigned int local_bits_array[THREADS_NUM_PER_BLOCK];
     __shared__ unsigned int local_sorted_array[THREADS_NUM_PER_BLOCK];
+    extern __shared__ unsigned int local_bucket_size[];
 
+    if (threadIdx.x == 0)
+        for (int i = 0; i < BITS_POWER; ++i)
+            local_bucket_size[i] = 0;
+    __syncthreads();
+    
     // Compute the last block "size" (i.e., valid last thread index + 1) given N.
     __shared__ unsigned int block_size;
     if (threadIdx.x == 0) {
@@ -94,56 +106,75 @@ void RadixSortMemoryCoalescedKernel(
     }
     __syncthreads();
 
-    // Store the bits value given the iteration.
-    unsigned int key, bit;
-    if (index < N) {
-        key = input[index];
-        bit = (key >> iter) & 1;
-        local_bits_array[threadIdx.x] = bit;
-    }
+    // Initialize local sorted array with the current input value.
+    if (index < N)
+        local_sorted_array[threadIdx.x] = input[index];
     __syncthreads();
 
-    // Run local exclusive scan.
-    runLocalInclusiveScan(local_bits_array, block_size);
-    __syncthreads();
+    // Run local sort NUM_BITS time(s).
+    for (int local_iter = 0; local_iter < NUM_BITS; ++local_iter) {
+        unsigned int current_iter_bit, current_iter_key;
+        if (threadIdx.x < block_size) {
+            current_iter_key = local_sorted_array[threadIdx.x];
+            current_iter_bit = (local_sorted_array[threadIdx.x] >> (NUM_BITS*iter) >> local_iter) & 1;
+            local_bits_array[threadIdx.x] = current_iter_bit;
+        }
+        __syncthreads();
+        
+        // Run local exclusive scan.
+        if (threadIdx.x < block_size)
+            runLocalInclusiveScan(local_bits_array, block_size);
+        __syncthreads();
 
-    // Sort locally.
-    if (threadIdx.x < block_size) {
-        unsigned int num_ones_before = (threadIdx.x == 0) ? 0 : local_bits_array[threadIdx.x - 1];
-        unsigned int num_ones_total = local_bits_array[block_size - 1];
-        unsigned int destination = (bit == 0) ? (threadIdx.x - num_ones_before)
-                                              : (block_size - num_ones_total + num_ones_before);
-        local_sorted_array[destination] = key;
+        // Sort locally.
+        unsigned int destination;
+        if (threadIdx.x < block_size) {
+            unsigned int num_ones_before = (threadIdx.x == 0) ? 0 : local_bits_array[threadIdx.x - 1];
+            unsigned int num_ones_total = local_bits_array[block_size - 1];
+            destination = (current_iter_bit == 0) ? (threadIdx.x - num_ones_before)
+                                                  : (block_size - num_ones_total + num_ones_before);
+            local_sorted_array[destination] = current_iter_key;
+        }
+        __syncthreads();
     }
 
     // Compute the thread blocks' local bucket size.
+    unsigned int bit;
+    if (threadIdx.x < block_size) {
+        bit = (local_sorted_array[threadIdx.x] >> (NUM_BITS*iter)) & (BITS_POWER - 1);
+        atomicAdd(&local_bucket_size[bit], 1);
+    }
+    __syncthreads();
+
+    // Perform a sequantial scan on local_bucket_size.
     if (threadIdx.x == 0)
-        block_bucket_scan_values[blockIdx.x] = block_size - local_bits_array[block_size-1];
-        block_bucket_scan_values[blockIdx.x + gridDim.x] = local_bits_array[block_size-1];
+        for (int i = 1; i < BITS_POWER; ++i)
+            local_bucket_size[i] += local_bucket_size[i-1];
+
+    atomicAdd(&block_bucket_scan_values[gridDim.x*bit + blockIdx.x], 1);
+    if (threadIdx.x == 0) {
         atomicAdd(&block_scan_gate[0], 1);
         runInclusiveScanAcrossBlocks(
-            block_bucket_scan_values,
             block_scan_gate,
+            block_bucket_scan_values,
             block_flags
         );
-
+    }
     while (atomicAdd(&block_flags[gridDim.x - 1], 0) == 0) {}
 
     // Store the element in global memory.
     unsigned int beginning_position;
-    if (threadIdx.x < block_size)
-        bit = (local_sorted_array[threadIdx.x] >> iter) & 1;
-
     if (blockIdx.x == 0)
-        beginning_position = (bit == 0) ? 0 : block_bucket_scan_values[gridDim.x - 1];
+        beginning_position = (bit == 0) ? 0 : block_bucket_scan_values[bit*gridDim.x - 1];
     else
         beginning_position = block_bucket_scan_values[blockIdx.x + bit*gridDim.x - 1];
-    
-    if (threadIdx.x < block_size) {
-        unsigned int global_destination = (bit == 0) ? threadIdx.x + beginning_position
-                                                     : threadIdx.x - (block_size - local_bits_array[block_size - 1]) + beginning_position;
 
-        output[global_destination] = local_sorted_array[threadIdx.x];
+    __syncthreads();
+    if (threadIdx.x < block_size) {
+        unsigned int destination = (bit == 0) ? threadIdx.x + beginning_position
+                                              : threadIdx.x - local_bucket_size[bit-1] + beginning_position;
+
+        output[destination] = local_sorted_array[threadIdx.x];
     }
 }
 
@@ -156,6 +187,7 @@ void runRadixSort(
     // Get size in bytes.
     size_t size_array = N * sizeof(unsigned int);
     size_t size_array_block = BLOCK_NUM * sizeof(unsigned int);
+    size_t size_bucket = BITS_POWER * BLOCK_NUM * sizeof(unsigned int);
 
     // Load and copy host variables to device memory.
     unsigned int *input_d, *output_d, *block_bucket_scan_values_d, *block_flags_d, *block_scan_gate_d;
@@ -164,9 +196,9 @@ void runRadixSort(
     cudaMemcpy(input_d, input_h, size_array, cudaMemcpyHostToDevice);
 
     cudaMalloc((void***)&output_d, size_array);
-    cudaMalloc((void***)&block_bucket_scan_values_d, size_array_block*2);
+    cudaMalloc((void***)&block_bucket_scan_values_d, size_bucket);
     cudaMalloc((void***)&block_flags_d, size_array_block);
-    cudaMalloc((void***)&block_scan_gate_d, sizeof(unsigned int));
+    cudaMalloc((void***)&block_scan_gate_d , sizeof(unsigned int));
 
     // Get the total number of iterations.
     // 1. Get the max value across all input elements.
@@ -176,7 +208,7 @@ void runRadixSort(
     // 2. Get the number of bits.
     unsigned int bit_counter = 0;
     while (max_value > 0) {
-        max_value = max_value >> 1;
+        max_value = max_value >> NUM_BITS;
         ++bit_counter;
     }
 
@@ -186,16 +218,18 @@ void runRadixSort(
     
     for (int i = 0; i < bit_counter; ++i) {
         // Initialize the block scan values and flags for each iteration.
-        cudaMemset(block_bucket_scan_values_d, 0, size_array_block*2);
+        cudaMemset(block_bucket_scan_values_d, 0, size_bucket);
         cudaMemset(block_flags_d, 0, size_array_block);
         cudaMemset(block_scan_gate_d, 0, sizeof(unsigned int));
         
-        RadixSortMemoryCoalescedKernel<<<dimGrid, dimBlock>>>(
+        RadixSortMultiBitsKernel<<<dimGrid, dimBlock, BITS_POWER * sizeof(unsigned int)>>>(
             input_d, output_d,
             block_bucket_scan_values_d,
             block_flags_d,
             block_scan_gate_d,
-            N, i);
+            N,
+            i
+        );
         
         // Comment out the printing below for debugging purposes.
         // cudaMemcpy(output_h, output_d, size_array, cudaMemcpyDeviceToHost);
