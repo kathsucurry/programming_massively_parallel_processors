@@ -1,13 +1,14 @@
 /**
- *  Perform radix sort allowing for multi-bits, corresponds to chapter 13.5.
+ *  Perform radix sort allowing for multi-bits + thread coarsening, corresponds to chapter 13.6.
  */
 #include <cmath>
 #include <stdio.h>
 #include <cuda_runtime.h>
 
 #define INPUT_LENGTH 16
+#define KEYS_NUM_PER_THREADS 2 // For thread coarsening.
 #define THREADS_NUM_PER_BLOCK 4
-#define BLOCK_NUM ceil(INPUT_LENGTH * 1.0 / THREADS_NUM_PER_BLOCK)
+#define BLOCK_NUM ceil(INPUT_LENGTH * 1.0 / THREADS_NUM_PER_BLOCK / KEYS_NUM_PER_THREADS)
 #define NUM_BITS 2
 #define BITS_POWER (int) std::pow(2, NUM_BITS)
 
@@ -17,27 +18,40 @@ void runLocalInclusiveScan(
     unsigned int* array,
     unsigned int block_size
 ) {
-    __shared__ unsigned int shared_array[THREADS_NUM_PER_BLOCK];
-
-    if (threadIdx.x < block_size)
-        shared_array[threadIdx.x] = array[threadIdx.x];
-    else
-        shared_array[threadIdx.x] = 0.0f;
+    __shared__ unsigned int shared_array[THREADS_NUM_PER_BLOCK*KEYS_NUM_PER_THREADS];
+    __shared__ unsigned int shared_temp_array[THREADS_NUM_PER_BLOCK*KEYS_NUM_PER_THREADS];
     
-    for (unsigned int stride = 1; stride < blockDim.x; stride *= 2) {
-        __syncthreads();
+    for (unsigned int key_iter = 0; key_iter < KEYS_NUM_PER_THREADS; ++key_iter) {
+        unsigned int index = KEYS_NUM_PER_THREADS*threadIdx.x + key_iter;
+        if (index < block_size)
+            shared_array[index] = array[index];
+        else
+            shared_array[index] = 0.0f;
+    }
+    __syncthreads();
 
-        unsigned int temp_value;
-        if (threadIdx.x >= stride)
-            temp_value = shared_array[threadIdx.x] + shared_array[threadIdx.x - stride];
+    for (unsigned int stride = 1; stride < block_size; stride *= 2) {
+        for (unsigned int key_iter = 0; key_iter < KEYS_NUM_PER_THREADS; ++key_iter) {
+            unsigned int index = KEYS_NUM_PER_THREADS*threadIdx.x + key_iter;
+            unsigned int temp_value;
+            if (index >= stride)
+                temp_value = shared_array[index] + shared_array[index - stride];
+                shared_temp_array[index] = temp_value;
+        }
         __syncthreads();
-
-        if (threadIdx.x >= stride)
-            shared_array[threadIdx.x] = temp_value;
+        for (unsigned int key_iter = 0; key_iter < KEYS_NUM_PER_THREADS; ++key_iter) {
+            unsigned int index = KEYS_NUM_PER_THREADS*threadIdx.x + key_iter;
+            if (index >= stride)
+                shared_array[index] = shared_temp_array[index];
+        }
+        __syncthreads();
     }
 
-    if (threadIdx.x < block_size)
-        array[threadIdx.x] = shared_array[threadIdx.x];
+    for (unsigned int key_iter = 0; key_iter < KEYS_NUM_PER_THREADS; ++key_iter) {
+        unsigned int index = KEYS_NUM_PER_THREADS*threadIdx.x + key_iter;
+        if (index < block_size)
+            array[index] = shared_array[index];
+    }
 }
 
 
@@ -75,22 +89,22 @@ void runInclusiveScanAcrossBlocks(
 
 
 __global__
-void RadixSortMultiBitsKernel(
+void RadixSortCoarsenedThreadsKernel(
     unsigned int* input,
     unsigned int* output,
     unsigned int* block_bucket_scan_values,
     unsigned int* block_flags,
     unsigned int* block_scan_gate,
     unsigned int N,
-    unsigned int iter
+    unsigned int global_iter
 ) {
-    unsigned int index = blockIdx.x * blockDim.x + threadIdx.x;
-    
     // To be used for storing the bits values and the inclusive scan results.
-    __shared__ unsigned int local_bits_array[THREADS_NUM_PER_BLOCK];
-    __shared__ unsigned int local_sorted_array[THREADS_NUM_PER_BLOCK];
+    __shared__ unsigned int local_bits_array[THREADS_NUM_PER_BLOCK*KEYS_NUM_PER_THREADS];
+    __shared__ unsigned int local_sorted_array[THREADS_NUM_PER_BLOCK*KEYS_NUM_PER_THREADS];
+    __shared__ unsigned int local_temp_sorted_array[THREADS_NUM_PER_BLOCK*KEYS_NUM_PER_THREADS];
     extern __shared__ unsigned int local_bucket_size[];
 
+    // Reset the values.
     if (threadIdx.x == 0)
         for (int i = 0; i < BITS_POWER; ++i)
             local_bucket_size[i] = 0;
@@ -99,50 +113,64 @@ void RadixSortMultiBitsKernel(
     // Compute the last block "size" (i.e., valid last thread index + 1) given N.
     __shared__ unsigned int block_size;
     if (threadIdx.x == 0) {
-        if ((blockIdx.x + 1)*blockDim.x > N)
-            block_size = blockDim.x % N;
+        if ((blockIdx.x + 1)*(blockDim.x*KEYS_NUM_PER_THREADS) > N)
+            block_size = (blockDim.x*KEYS_NUM_PER_THREADS) % N;
         else
-            block_size = blockDim.x;
+            block_size = (blockDim.x*KEYS_NUM_PER_THREADS);
     }
     __syncthreads();
 
-    // Initialize local sorted array with the current input value.
-    if (index < N)
-        local_sorted_array[threadIdx.x] = input[index];
+    // Initialize local sorted array with the current input value; ensure memory coalescing.
+    for (int i = 0; i < KEYS_NUM_PER_THREADS; ++i) {
+        if (threadIdx.x + i * THREADS_NUM_PER_BLOCK < block_size) {
+            unsigned int global_index = blockIdx.x * blockDim.x * KEYS_NUM_PER_THREADS + threadIdx.x;
+            local_sorted_array[threadIdx.x + i * THREADS_NUM_PER_BLOCK] = input[global_index + i * THREADS_NUM_PER_BLOCK];
+        }
+    }
     __syncthreads();
 
     // Run local sort NUM_BITS time(s).
-    for (int local_iter = 0; local_iter < NUM_BITS; ++local_iter) {
-        unsigned int current_iter_bit, current_iter_key;
-        if (threadIdx.x < block_size) {
-            current_iter_key = local_sorted_array[threadIdx.x];
-            current_iter_bit = (local_sorted_array[threadIdx.x] >> (NUM_BITS*iter) >> local_iter) & 1;
-            local_bits_array[threadIdx.x] = current_iter_bit;
+    for (int bit_iter = 0; bit_iter < NUM_BITS; ++bit_iter) {
+        for (int key_iter = 0; key_iter < KEYS_NUM_PER_THREADS; ++key_iter) {
+            unsigned int key_index = threadIdx.x * KEYS_NUM_PER_THREADS + key_iter;
+            if (key_index < block_size) {
+                local_bits_array[key_index] = (local_sorted_array[key_index] >> (NUM_BITS*global_iter) >> bit_iter) & 1;
+            }
         }
         __syncthreads();
         
         // Run local exclusive scan.
-        if (threadIdx.x < block_size)
-            runLocalInclusiveScan(local_bits_array, block_size);
+        runLocalInclusiveScan(local_bits_array, block_size);
         __syncthreads();
 
         // Sort locally.
-        unsigned int destination;
-        if (threadIdx.x < block_size) {
-            unsigned int num_ones_before = (threadIdx.x == 0) ? 0 : local_bits_array[threadIdx.x - 1];
-            unsigned int num_ones_total = local_bits_array[block_size - 1];
-            destination = (current_iter_bit == 0) ? (threadIdx.x - num_ones_before)
-                                                  : (block_size - num_ones_total + num_ones_before);
-            local_sorted_array[destination] = current_iter_key;
+        for (int key_iter = 0; key_iter < KEYS_NUM_PER_THREADS; ++key_iter) {
+            unsigned int key_index = threadIdx.x * KEYS_NUM_PER_THREADS + key_iter;
+            unsigned int current_iter_bit = (local_sorted_array[key_index] >> (NUM_BITS*global_iter) >> bit_iter) & 1;
+            unsigned int destination;
+            if (key_index < block_size) {
+                unsigned int num_ones_before = (key_index == 0) ? 0 : local_bits_array[key_index - 1];
+                unsigned int num_ones_total = local_bits_array[block_size - 1];
+                destination = (current_iter_bit == 0) ? (key_index - num_ones_before)
+                                                      : (block_size - num_ones_total + num_ones_before);
+                local_temp_sorted_array[destination] = local_sorted_array[key_index];
+            }
         }
         __syncthreads();
+        for (int key_iter = 0; key_iter < KEYS_NUM_PER_THREADS; ++key_iter) {
+            unsigned int key_index = threadIdx.x * KEYS_NUM_PER_THREADS + key_iter;
+            if (key_index < block_size)
+                local_sorted_array[key_index] = local_temp_sorted_array[key_index];
+        }
+        __syncthreads(); 
     }
 
-    // Compute the thread blocks' local bucket size.
-    unsigned int bit;
-    if (threadIdx.x < block_size) {
-        bit = (local_sorted_array[threadIdx.x] >> (NUM_BITS*iter)) & (BITS_POWER - 1);
+    // Store the thread blocks' local bucket size.
+    for (int key_iter = 0; key_iter < KEYS_NUM_PER_THREADS; ++key_iter) {
+        unsigned int key_index = threadIdx.x * KEYS_NUM_PER_THREADS + key_iter;
+        unsigned int bit = (local_sorted_array[key_index] >> (NUM_BITS*global_iter)) & (BITS_POWER - 1);
         atomicAdd(&local_bucket_size[bit], 1);
+        atomicAdd(&block_bucket_scan_values[gridDim.x*bit + blockIdx.x], 1);
     }
     __syncthreads();
 
@@ -151,7 +179,6 @@ void RadixSortMultiBitsKernel(
         for (int i = 1; i < BITS_POWER; ++i)
             local_bucket_size[i] += local_bucket_size[i-1];
 
-    atomicAdd(&block_bucket_scan_values[gridDim.x*bit + blockIdx.x], 1);
     if (threadIdx.x == 0) {
         atomicAdd(&block_scan_gate[0], 1);
         runInclusiveScanAcrossBlocks(
@@ -162,18 +189,22 @@ void RadixSortMultiBitsKernel(
     }
     while (atomicAdd(&block_flags[gridDim.x - 1], 0) == 0) {}
 
-    // Store the element in global memory.
-    unsigned int beginning_position;
-    if (blockIdx.x == 0)
-        beginning_position = (bit == 0) ? 0 : block_bucket_scan_values[bit*gridDim.x - 1];
-    else
-        beginning_position = block_bucket_scan_values[blockIdx.x + bit*gridDim.x - 1];
+    // Store the element in global memory; ensure memory coalescing.
+    for (int key_iter = 0; key_iter < KEYS_NUM_PER_THREADS; ++key_iter) {
+        unsigned int key_index = threadIdx.x + key_iter * THREADS_NUM_PER_BLOCK;
+        unsigned int beginning_position;
+        unsigned int bit = local_sorted_array[key_index] >> (NUM_BITS*global_iter) & (BITS_POWER - 1);
+        if (blockIdx.x == 0)
+            beginning_position = (bit == 0) ? 0 : block_bucket_scan_values[bit*gridDim.x - 1];
+        else
+            beginning_position = block_bucket_scan_values[blockIdx.x + bit*gridDim.x - 1];
 
-    if (threadIdx.x < block_size) {
-        unsigned int destination = (bit == 0) ? threadIdx.x + beginning_position
-                                              : threadIdx.x - local_bucket_size[bit-1] + beginning_position;
+        if (key_index < block_size) {
+            unsigned int destination = (bit == 0) ? key_index + beginning_position
+                                                  : key_index - local_bucket_size[bit-1] + beginning_position;
 
-        output[destination] = local_sorted_array[threadIdx.x];
+            output[destination] = local_sorted_array[key_index];
+        }
     }
 }
 
@@ -221,7 +252,7 @@ void runRadixSort(
         cudaMemset(block_flags_d, 0, size_array_block);
         cudaMemset(block_scan_gate_d, 0, sizeof(unsigned int));
         
-        RadixSortMultiBitsKernel<<<dimGrid, dimBlock, BITS_POWER * sizeof(unsigned int)>>>(
+        RadixSortCoarsenedThreadsKernel<<<dimGrid, dimBlock, BITS_POWER * sizeof(unsigned int)>>>(
             input_d, output_d,
             block_bucket_scan_values_d,
             block_flags_d,
