@@ -1,5 +1,5 @@
 /**
- *  Convert COO to CSR format, corresponds to chapter 14.3. SPMV is used for evaluating the CSR outputs.
+ *  Convert COO to CSR format, corresponds to chapter 14.3 & Exercise 3. SPMV is used for evaluating the CSR outputs.
  *  The matrix-vector multiplication performs Y = AX where A denotes the matrix and X denotes the vector.
  */
 #include <stdio.h>
