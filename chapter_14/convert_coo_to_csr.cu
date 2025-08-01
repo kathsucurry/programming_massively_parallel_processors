@@ -143,7 +143,7 @@ void CooToCsrConversionKernel(
             csr_row_pointer_indices[global_index] = row_histogram[global_index - 1];
     __syncthreads();
 
-    // Ensure 
+    // Ensure all blocks have updated the row pointer indices.
     atomicAdd(&block_gate[0], 1);
     while (atomicAdd(&block_gate[0], 0) < gridDim.x) {}
 
