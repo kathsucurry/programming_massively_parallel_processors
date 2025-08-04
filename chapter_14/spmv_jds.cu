@@ -19,6 +19,8 @@ struct JdsSparseMatrix {
     unsigned int *row_order;
     float *values;
     unsigned int size_array;
+    unsigned int *num_non_zeroes_per_original_row;
+    unsigned int max_row_elements;
 };
 
 
@@ -45,7 +47,7 @@ JdsSparseMatrix convertCsrToJDS(
     unsigned int *csr_col_indices,
     float *csr_values
 ) {
-    unsigned int num_nonzeroes_per_row[MATRIX_DIM];
+    unsigned int *num_non_zeroes_per_original_row = (unsigned int*)malloc(MATRIX_DIM * sizeof(unsigned int));
 
     // Obtain the max number of elements across each row.
     unsigned int max_row_elements = 0;
@@ -53,7 +55,7 @@ JdsSparseMatrix convertCsrToJDS(
     for (unsigned int row = 0; row < MATRIX_DIM; ++row) {
         unsigned int num_row_elements = csr_row_pointer_indices[row+1] - csr_row_pointer_indices[row];
         max_row_elements = max(max_row_elements, num_row_elements);
-        num_nonzeroes_per_row[row] = num_row_elements;
+        num_non_zeroes_per_original_row[row] = num_row_elements;
         total_num_non_zeroes += num_row_elements;
     }
     
@@ -62,7 +64,7 @@ JdsSparseMatrix convertCsrToJDS(
     float padded_values_table[MATRIX_DIM][max_row_elements];
     for (unsigned int row = 0; row < MATRIX_DIM; ++row) {
         for (unsigned int col = 0; col < max_row_elements; ++col)
-            if (col >= num_nonzeroes_per_row[row]) {
+            if (col >= num_non_zeroes_per_original_row[row]) {
                 padded_col_indices_table[row][col] = 0;
                 padded_values_table[row][col] = 0.0f;
             } else {
@@ -72,7 +74,7 @@ JdsSparseMatrix convertCsrToJDS(
     }
 
     // Get the indices of the sorted array by descending size.
-    unsigned int *jds_row_order = getArgSort(num_nonzeroes_per_row, MATRIX_DIM);
+    unsigned int *jds_row_order = getArgSort(num_non_zeroes_per_original_row, MATRIX_DIM);
 
     // Convert the table into column-major arrays.
     unsigned int *jds_iter_pointer_indices = (unsigned int*)malloc(
@@ -87,8 +89,10 @@ JdsSparseMatrix convertCsrToJDS(
             if (row == 0) {
                 jds_iter_pointer_indices[iter_pointer_counter++] = array_counter;
             }
+            // We only obtain the arg sort indices of the row without sorting the rest of the
+            // variables (e.g., the tables), so compute the original row index.
             unsigned int original_row_index = jds_row_order[row];
-            if (col >= num_nonzeroes_per_row[original_row_index])
+            if (col >= num_non_zeroes_per_original_row[original_row_index])
                 break;
             jds_col_indices[array_counter] = padded_col_indices_table[original_row_index][col];
             jds_values[array_counter] = padded_values_table[original_row_index][col];
@@ -98,117 +102,115 @@ JdsSparseMatrix convertCsrToJDS(
     // Add the starting location of the nonexistent row.
     jds_iter_pointer_indices[iter_pointer_counter] = array_counter;
 
-    for (int i = 0; i < total_num_non_zeroes; ++i) {
-        printf("%d ", jds_col_indices[i]);
-    }
-    printf("\n");
-
-    for (int i = 0; i < total_num_non_zeroes; ++i) {
-        printf("%.0f ", jds_values[i]);
-    }
-    printf("\n");
-
     JdsSparseMatrix jds_matrix;
     jds_matrix.iter_pointer_indices = jds_iter_pointer_indices;
     jds_matrix.col_indices = jds_col_indices;
     jds_matrix.row_order = jds_row_order;
     jds_matrix.values = jds_values;
+    jds_matrix.num_non_zeroes_per_original_row = num_non_zeroes_per_original_row;
     jds_matrix.size_array = total_num_non_zeroes;
+    jds_matrix.max_row_elements = max_row_elements;
 
     return jds_matrix;
 }
 
 
-// __global__
-// void SparseMatVecMulEllKernel(
-//     unsigned int* col_indices,
-//     float* values,
-//     unsigned int* num_nonzeroes_per_row,
-//     unsigned int array_size,
-//     float* vector_X,
-//     float* vector_Y
-// ) {
-//     unsigned int row_index = blockIdx.x * blockDim.x + threadIdx.x;
-//     if (row_index < MATRIX_DIM) {
-//         float sum = 0.0f;
-//         for (unsigned int col = 0; col < num_nonzeroes_per_row[row_index]; ++col) {
-//             unsigned int index = col * MATRIX_DIM + row_index;
-//             unsigned int col_index = col_indices[index];
-//             float value = values[index];
-//             sum += vector_X[col_index] * value;
-//         } 
-//         vector_Y[row_index] = sum;
-//     }
-// }
+__global__
+void SparseMatVecMulJdsKernel(
+    unsigned int *iter_pointer_indices,
+    unsigned int *col_indices,
+    unsigned int *row_order,
+    float *values,
+    unsigned int *num_non_zeroes_per_original_row,
+    float* vector_X,
+    float* vector_Y
+) {
+    unsigned int row_sorted_index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (row_sorted_index < MATRIX_DIM) {
+        unsigned int row_original_index = row_order[row_sorted_index];
+        float sum = 0.0f;
+        for (unsigned int col = 0; col < num_non_zeroes_per_original_row[row_original_index]; ++col) {
+            unsigned int index = iter_pointer_indices[col] + row_sorted_index;
+            unsigned int col_index = col_indices[index];
+            float value = values[index];
+            sum += vector_X[col_index] * value;
+        }
+        vector_Y[row_order[row_sorted_index]] = sum;
+    }
+}
 
 
-// /**
-//  * To perform SPMV, the function does the following steps:
-//  * 1) Launch the ELL kernel.
-//  * 2) Compute the contributions of the COO elements on the host.
-//  */
-// void runSparseMatVecMultiplication(
-//     EllCooSparseMatrix ellcoo_matrix,
-//     float* vector_X_h,
-//     float* vector_Y_h,
-//     unsigned int vector_dim
-// ) {
-//     // STEP 1: LAUNCH ELL KERNEL.
-//     unsigned int *ell_col_indices_h = ellcoo_matrix.ell_col_indices;
-//     float *ell_values_h = ellcoo_matrix.ell_values;
-//     unsigned int *ell_num_nonzeroes_per_row_h = ellcoo_matrix.ell_num_nonzeroes_per_row;
-//     unsigned int ell_array_size = ellcoo_matrix.ell_array_size;
+void runSparseMatVecMultiplication(
+    JdsSparseMatrix jds_matrix,
+    float* vector_X_h,
+    float* vector_Y_h,
+    unsigned int vector_dim
+) {
+    // Prepare JDS variables.
+    unsigned int *jds_iter_pointer_indices_h = jds_matrix.iter_pointer_indices;
+    unsigned int *jds_col_indices_h = jds_matrix.col_indices;
+    unsigned int *jds_row_order_h = jds_matrix.row_order;
+    float *jds_values_h = jds_matrix.values;
+    unsigned int *jds_num_non_zeroes_per_original_row_h = jds_matrix.num_non_zeroes_per_original_row;
+    unsigned int jds_size_array = jds_matrix.size_array;
+    unsigned int jds_max_row_elements = jds_matrix.max_row_elements;
 
-//     // Load and copy host variables to device memory.
-//     // Load the matrix.
-//     unsigned int *ell_col_indices_d, *ell_num_nonzeroes_per_row_d;
-//     float *ell_values_d;
+    // Load and copy host variables to device memory.
+    // Load the matrix.
+    unsigned int *jds_iter_pointer_indices_d, *jds_col_indices_d, *jds_row_order_d, *jds_num_non_zeroes_per_original_row_d;
+    float *jds_values_d;
 
-//     size_t size_col_indices = ell_array_size * sizeof(unsigned int);
-//     size_t size_values = ell_array_size * sizeof(float);
-//     size_t size_num_nonzeroes_per_row = MATRIX_DIM * sizeof(unsigned int);
+    size_t size_iter_pointer_indices = (jds_max_row_elements + 1) * sizeof(unsigned int);
+    size_t size_col_indices = jds_size_array * sizeof(unsigned int);
+    size_t size_row_order = MATRIX_DIM * sizeof(unsigned int);
+    size_t size_values = jds_size_array * sizeof(float);
 
-//     cudaMalloc((void**)&ell_col_indices_d, size_col_indices);
-//     cudaMemcpy(ell_col_indices_d, ell_col_indices_h, size_col_indices, cudaMemcpyHostToDevice);
+    cudaMalloc((void**)&jds_iter_pointer_indices_d, size_iter_pointer_indices);
+    cudaMemcpy(jds_iter_pointer_indices_d, jds_iter_pointer_indices_h, size_iter_pointer_indices, cudaMemcpyHostToDevice);
 
-//     cudaMalloc((void**)&ell_values_d, size_values);
-//     cudaMemcpy(ell_values_d, ell_values_h, size_values, cudaMemcpyHostToDevice);
+    cudaMalloc((void**)&jds_col_indices_d, size_col_indices);
+    cudaMemcpy(jds_col_indices_d, jds_col_indices_h, size_col_indices, cudaMemcpyHostToDevice);
 
-//     cudaMalloc((void**)&ell_num_nonzeroes_per_row_d, size_num_nonzeroes_per_row);
-//     cudaMemcpy(ell_num_nonzeroes_per_row_d, ell_num_nonzeroes_per_row_h, size_num_nonzeroes_per_row, cudaMemcpyHostToDevice);
+    cudaMalloc((void**)&jds_row_order_d, size_row_order);
+    cudaMemcpy(jds_row_order_d, jds_row_order_h, size_row_order, cudaMemcpyHostToDevice);
 
-//     // Load vector X and Y.
-//     float *vector_X_d, *vector_Y_d;
-//     size_t size_array = vector_dim * sizeof(float);
-//     cudaMalloc((void***)&vector_X_d, size_array);
-//     cudaMemcpy(vector_X_d, vector_X_h, size_array, cudaMemcpyHostToDevice);
-//     cudaMalloc((void***)&vector_Y_d, size_array);
+    cudaMalloc((void**)&jds_values_d, size_values);
+    cudaMemcpy(jds_values_d, jds_values_h, size_values, cudaMemcpyHostToDevice);
 
-//     // Invoke kernel per iteration.
-//     dim3 dimBlock(THREADS_NUM_PER_BLOCK);
-//     dim3 dimGrid(ceil(MATRIX_DIM * 1.0 / THREADS_NUM_PER_BLOCK));
+    cudaMalloc((void**)&jds_num_non_zeroes_per_original_row_d, size_row_order);
+    cudaMemcpy(jds_num_non_zeroes_per_original_row_d, jds_num_non_zeroes_per_original_row_h, size_row_order, cudaMemcpyHostToDevice);
+
+    // Load vector X and Y.
+    float *vector_X_d, *vector_Y_d;
+    size_t size_array = vector_dim * sizeof(float);
+    cudaMalloc((void***)&vector_X_d, size_array);
+    cudaMemcpy(vector_X_d, vector_X_h, size_array, cudaMemcpyHostToDevice);
+    cudaMalloc((void***)&vector_Y_d, size_array);
+
+    // Invoke kernel per iteration.
+    dim3 dimBlock(THREADS_NUM_PER_BLOCK);
+    dim3 dimGrid(ceil(MATRIX_DIM * 1.0 / THREADS_NUM_PER_BLOCK));
     
-//     SparseMatVecMulEllKernel<<<dimGrid, dimBlock>>>(
-//         ell_col_indices_d, ell_values_d, ell_num_nonzeroes_per_row_d, ell_array_size, vector_X_d, vector_Y_d);
+    SparseMatVecMulJdsKernel<<<dimGrid, dimBlock>>>(
+        jds_iter_pointer_indices_d,
+        jds_col_indices_d,
+        jds_row_order_d,
+        jds_values_d,
+        jds_num_non_zeroes_per_original_row_d,
+        vector_X_d,
+        vector_Y_d
+    );
 
-//     // Copy the output from the device memory.
-//     cudaMemcpy(vector_Y_h, vector_Y_d, size_array, cudaMemcpyDeviceToHost);
+    // Copy the output from the device memory.
+    cudaMemcpy(vector_Y_h, vector_Y_d, size_array, cudaMemcpyDeviceToHost);
 
-//     // Free device arrays.
-//     cudaFree(vector_X_d);
-//     cudaFree(vector_Y_d);
-//     cudaFree(ell_col_indices_d);
-//     cudaFree(ell_values_d);
-//     cudaFree(ell_num_nonzeroes_per_row_d);
-
-//     // STEP 2: ADD THE CONTRIBUTION FROM COO ELEMENTS.
-//     unsigned int *coo_row_indices = ellcoo_matrix.coo_row_indices;
-//     unsigned int *coo_col_indices = ellcoo_matrix.coo_col_indices;
-//     float *coo_values = ellcoo_matrix.coo_values;
-//     for (int i = 0; i < ellcoo_matrix.coo_array_size; ++i) {
-//         vector_Y_h[coo_row_indices[i]] += (vector_X_h[coo_col_indices[i]] * coo_values[i]);
-//     }
-// }
+    // Free device arrays.
+    cudaFree(vector_X_d);
+    cudaFree(vector_Y_d);
+    cudaFree(jds_iter_pointer_indices_d); 
+    cudaFree(jds_col_indices_d); 
+    cudaFree(jds_row_order_d);
+}
 
 
 int main() {
@@ -231,31 +233,31 @@ int main() {
         csr_values
     );
 
-    // // Prepare vector X for matrix-vector multiplication.
-    // float X[MATRIX_DIM];
-    // for (int i = 0; i < MATRIX_DIM; ++i)
-    //     X[i] = 1;
+    // Prepare vector X for matrix-vector multiplication.
+    float X[MATRIX_DIM];
+    for (int i = 0; i < MATRIX_DIM; ++i)
+        X[i] = 1;
 
-    // float Y_expected[] = {1, 20, 15, 19, 11, 25, 62, 18};
-    // float Y_actual[MATRIX_DIM];
+    float Y_expected[] = {1, 20, 15, 19, 11, 25, 62, 18};
+    float Y_actual[MATRIX_DIM];
 
-    // runSparseMatVecMultiplication(
-    //     ellcoo_matrix,
-    //     X,
-    //     Y_actual,
-    //     MATRIX_DIM
-    // );
+    runSparseMatVecMultiplication(
+        jds_matrix,
+        X,
+        Y_actual,
+        MATRIX_DIM
+    );
 
-    // // Check if the result is correct.
-    // bool is_correct = true;
-    // for (int i = 0; i < MATRIX_DIM; ++i)
-    //     if (fabs(Y_actual[i] - Y_expected[i]) > eps) {
-    //         is_correct = false;
-    //         printf("The actual and expected results differ at index %d; actual = %.0f, expected = %.0f\n", i, Y_actual[i], Y_expected[i]);
-    //         break;
-    //     }
-    // if (is_correct)
-    //     printf("The actual and expected results are identical!\n");
+    // Check if the result is correct.
+    bool is_correct = true;
+    for (int i = 0; i < MATRIX_DIM; ++i)
+        if (fabs(Y_actual[i] - Y_expected[i]) > eps) {
+            is_correct = false;
+            printf("The actual and expected results differ at index %d; actual = %.0f, expected = %.0f\n", i, Y_actual[i], Y_expected[i]);
+            break;
+        }
+    if (is_correct)
+        printf("The actual and expected results are identical!\n");
     
     return 0;
 }
