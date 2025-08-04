@@ -11,7 +11,7 @@
 
 
 __global__
-void BfsTopDownKernel(
+void BfsBottomUpKernel(
     unsigned int *dst_pointer_indices,
     unsigned int *src_indices,
     unsigned int *level,
@@ -75,7 +75,7 @@ void runBFS(
     while (new_vertex_visited_h[0] != 0) {
         cudaMemset(new_vertex_visited_d, 0, sizeof(unsigned int));
 
-        BfsTopDownKernel<<<dimGrid, dimBlock>>>(
+        BfsBottomUpKernel<<<dimGrid, dimBlock>>>(
             csc_dst_pointer_indices_d,
             csc_src_indices_d,
             level_d,
@@ -101,7 +101,7 @@ void runBFS(
 
 
 int main() {
-    // Generate the CSC graph; all values are 1s.
+    // Generate the CSC graph; all values (edge weight) are 1s.
     unsigned int dst_pointer_indices[] = {0, 1, 2, 3, 4, 6, 8, 11, 12, 15};
     unsigned int src_indices[] = {7, 0, 0, 1, 1, 3, 2, 4, 2, 5, 7, 2, 3, 4, 6};
     unsigned int edge_length = 15;
