@@ -1,5 +1,5 @@
 /**
- *  Perform sparse matrix-vector multiplication using ELL format, corresponds to chapter 14.4 & Exercise 4.
+ *  Perform sparse matrix-vector multiplication using ELL format, corresponds to chapter 14.5 & Exercise 4.
  *  The matrix-vector multiplication performs Y = AX where A denotes the matrix and X denotes the vector.
  */
 #include <stdio.h>
