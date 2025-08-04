@@ -189,7 +189,7 @@ int main() {
     );
 
     for (unsigned int i = 0; i < VERTEX_LENGTH; ++i)
-        printf("%d ", level[i]);
+        printf("%u ", level[i]);
     printf("\n");
 
     return 0;
