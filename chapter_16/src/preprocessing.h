@@ -1,10 +1,13 @@
 #ifndef PREPROCESSING
 #define PREPROCESSING
 
+#include <stdint.h>
 #include "mnist_read.h"
 
 
-MNISTDataset *normalize_pixels(MNISTDataset *dataset);
+ImageDataset *prepare_dataset(MNISTDataset *dataset);
+ImageDataset *normalize_pixels(ImageDataset *dataset);
+ImageDataset *add_padding(ImageDataset *dataset, uint8_t num_padding);
 
 
 #endif

@@ -11,7 +11,7 @@
 
 typedef struct {
     // The pixels in the image are stored in a row-major format.
-    uint8_t *pixel; 
+    uint8_t *pixels; 
     uint32_t height;
     uint32_t width;
 } MNISTImage;
@@ -22,6 +22,20 @@ typedef struct {
     uint8_t *labels;
     uint32_t num_samples;
 } MNISTDataset;
+
+
+typedef struct {
+    float *pixels;
+    uint32_t height;
+    uint32_t width;
+} Image;
+
+
+typedef struct {
+    Image *images;
+    uint8_t *labels;
+    uint32_t num_samples;
+} ImageDataset;
 
 
 MNISTDataset *load_mnist_dataset(const char *images_file_path, const char *labels_file_path);

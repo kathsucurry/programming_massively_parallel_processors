@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include "src/mnist_read.h"
-// #include "src/preprocessing.h"
+#include "src/preprocessing.h"
 
 int main() {
     MNISTDataset *train_dataset = load_mnist_dataset(
@@ -16,7 +16,25 @@ int main() {
     printf("#Samples in test set: %d\n", test_dataset->num_samples);
 
     // Normalize the pixel values to [0..1].
-    // normalize_pixels(train_dataset);
+    ImageDataset *transformed_train_dataset = add_padding(
+        normalize_pixels(
+            prepare_dataset(train_dataset)
+        ),
+        2
+    );
+
+    for (int i = 4; i < 5; ++i) {
+        printf("%d\n", transformed_train_dataset->labels[i]);
+        printf("%d\n", transformed_train_dataset->images[i].height);
+        printf("%d\n", transformed_train_dataset->images[i].width);
+        for (int row = 0; row < 32; ++row) {
+            for (int col = 0; col < 32; ++col) {
+                printf("%.0f ", transformed_train_dataset->images[i].pixels[row * 28 + col]);
+            }
+            printf("\n");
+        }
+        printf("\n");
+    }
 
 
     // zero padding to make it 32 x 32?

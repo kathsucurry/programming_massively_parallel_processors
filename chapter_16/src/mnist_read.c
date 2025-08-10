@@ -73,7 +73,7 @@ MNISTImage *_load_images_from_idx_file(const char *file_path, uint32_t *num_samp
         uint8_t *pixels = malloc(image_size * sizeof(uint8_t));
         fread(pixels, image_size * sizeof(uint8_t), 1, stream);
 
-        MNISTImage image = {.pixel=pixels, .height=image_height, .width=image_width};
+        MNISTImage image = {.pixels=pixels, .height=image_height, .width=image_width};
         images[i] = image;
     }
     fclose(stream);
