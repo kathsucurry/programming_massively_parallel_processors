@@ -27,13 +27,6 @@ uint32_t _read_uint32_convert_endian(FILE *stream, const uint32_t invalid_return
 }
 
 
-void _free_mnist_images(MNISTImages *mnist_images) {
-    free(mnist_images->images);
-    free(mnist_images->raw_images_byte);
-    free(mnist_images);
-}
-
-
 uint8_t _load_dimension_from_idx_file_header(FILE *stream) {
     uint8_t invalid_return_value = 0;
     uint32_t magic_number = _read_uint32_convert_endian(stream, invalid_return_value, "magic number");
@@ -52,7 +45,7 @@ uint8_t _load_dimension_from_idx_file_header(FILE *stream) {
 }
 
 
-MNISTImages *_load_images_from_idx_file(const char *file_path, uint32_t *num_samples) {
+MNISTImage *_load_images_from_idx_file(const char *file_path, uint32_t *num_samples) {
     FILE *stream = fopen(file_path, "rb");
 
     if (!stream) {
@@ -75,22 +68,17 @@ MNISTImages *_load_images_from_idx_file(const char *file_path, uint32_t *num_sam
         return NULL;
 
     uint32_t image_size = image_height * image_width;
-    uint32_t all_images_size = *num_samples * image_size;
-    uint8_t *raw_images_byte = malloc(all_images_size * sizeof(uint8_t));
-    fread(raw_images_byte, all_images_size * sizeof(uint8_t), 1, stream);
+    MNISTImage *images = (MNISTImage *)malloc(*num_samples * sizeof(MNISTImage));
+    for (int i = 0; i < *num_samples; ++i) {
+        uint8_t *pixels = malloc(image_size * sizeof(uint8_t));
+        fread(pixels, image_size * sizeof(uint8_t), 1, stream);
+
+        MNISTImage image = {.pixel=pixels, .height=image_height, .width=image_width};
+        images[i] = image;
+    }
     fclose(stream);
 
-    MNISTImage *images = (MNISTImage *)malloc(*num_samples * sizeof(MNISTImage));
-    for (uint32_t i = 0; i < *num_samples; ++i) {
-        images[i].pixel = &raw_images_byte[i * image_size];
-        images[i].height = image_height;
-        images[i].width = image_width;
-    }
-
-    MNISTImages *mnist_images = malloc(sizeof(MNISTImages));
-    mnist_images->images = images;
-    mnist_images->raw_images_byte = raw_images_byte;
-    return mnist_images;
+    return images;
 }
 
 
@@ -123,7 +111,7 @@ uint8_t *_load_labels_from_idx_file(const char *file_path, uint32_t *num_samples
 
 MNISTDataset *load_mnist_dataset(const char *images_file_path, const char *labels_file_path) {
     uint32_t num_images_samples, num_labels_samples;
-    MNISTImages *images = _load_images_from_idx_file(images_file_path, &num_images_samples);
+    MNISTImage *images = _load_images_from_idx_file(images_file_path, &num_images_samples);
     uint8_t *labels = _load_labels_from_idx_file(labels_file_path, &num_labels_samples);
 
     if (images == NULL || labels == NULL) {
