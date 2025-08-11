@@ -9,8 +9,10 @@
 ImageDataset *prepare_dataset(MNISTDataset *dataset) {
     uint8_t *copy_labels = malloc(dataset->num_samples * sizeof(uint8_t));
     Image *copy_images = malloc(dataset->num_samples * sizeof(Image));
+    uint32_t *copy_view_indices = malloc(dataset->num_samples * sizeof(uint32_t));
     for (uint32_t i = 0; i < dataset->num_samples; ++i) {
         copy_labels[i] = dataset->labels[i];
+        copy_view_indices[i] = i;
         MNISTImage image = dataset->images[i];
         float *copy_pixels = malloc(image.height * image.width * sizeof(float));
         for (uint32_t row = 0; row < image.height; ++row)
@@ -25,6 +27,7 @@ ImageDataset *prepare_dataset(MNISTDataset *dataset) {
     copy_dataset->num_samples = dataset->num_samples;
     copy_dataset->labels = copy_labels;
     copy_dataset->images = copy_images;
+    copy_dataset->view_indices = copy_view_indices;
     return copy_dataset;
 }
 

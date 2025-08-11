@@ -21,12 +21,12 @@ typedef struct {
 typedef struct {
     Conv2DLayerWeights* conv2_weights;
     LinearLayerWeights* linear_weights;
-} CNNNetworkWeights;
+} NetworkWeights;
 
 float *_uniform_xavier_initialization_1d(uint32_t fan_in, uint32_t fan_out, uint8_t size);
 float **_uniform_xavier_initialization_2d(uint32_t fan_in, uint32_t fan_out, uint8_t height, uint8_t width);
-Conv2DLayerWeights *initialize_conv_layer(uint8_t in_channels, uint8_t out_channels, uint8_t num_filters, uint8_t filter_size);
-LinearLayerWeights *initialize_linear_layer(uint8_t in_channels, uint8_t out_channels);
+Conv2DLayerWeights *initialize_conv_layer_weights(uint8_t in_channels, uint8_t out_channels, uint8_t filter_size);
+LinearLayerWeights *initialize_linear_layer_weights(uint8_t in_channels, uint8_t out_channels);
 
 
 #endif

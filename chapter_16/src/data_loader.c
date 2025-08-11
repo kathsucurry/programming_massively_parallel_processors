@@ -131,23 +131,20 @@ MNISTDataset *load_mnist_dataset(const char *images_file_path, const char *label
 }
 
 
-uint32_t *shuffle_indices(uint32_t num_samples, uint8_t seed) {
-    uint32_t *indices = malloc(num_samples * sizeof(uint32_t));
-    for (uint32_t i = 0; i < num_samples; ++i)
-        indices[i] = i;
-    
+void shuffle_indices(ImageDataset *dataset, uint8_t seed) {
     srand(seed);
+    uint32_t num_samples = dataset->num_samples;
     for (uint32_t init_index = 0; init_index < num_samples; ++init_index) {
         uint32_t index_to_swap = rand() % num_samples;
-        uint32_t temp = indices[init_index];
-        indices[init_index] = indices[index_to_swap];
-        indices[index_to_swap] = temp;
+        uint32_t temp = dataset->view_indices[init_index];
+        dataset->view_indices[init_index] = dataset->view_indices[index_to_swap];
+        dataset->view_indices[index_to_swap] = temp;
     }
-    return indices;
 }
 
 
-ImageDataset *split_dataset(ImageDataset *dataset, uint32_t *indices, uint32_t num_samples) {
+ImageDataset *split_dataset(ImageDataset *dataset, uint32_t begin_index, uint32_t end_index) {
+    uint32_t num_samples = end_index - begin_index;
     if (num_samples >= dataset->num_samples) {
         printf("Error in dataset split: number of samples for the new split exceeds the initial number of samples.");
         return NULL;
@@ -157,9 +154,12 @@ ImageDataset *split_dataset(ImageDataset *dataset, uint32_t *indices, uint32_t n
     split_dataset->num_samples = num_samples;
     split_dataset->images = malloc(num_samples * sizeof(Image));
     split_dataset->labels = malloc(num_samples * sizeof(uint8_t));
+    split_dataset->view_indices = malloc(num_samples * sizeof(uint32_t));
     for (uint32_t i = 0; i < num_samples; ++i) {
-        split_dataset->images[i] = dataset->images[indices[i]];
-        split_dataset->labels[i] = dataset->labels[indices[i]];
+        uint32_t old_index = dataset->view_indices[begin_index + i];
+        split_dataset->images[i] = dataset->images[old_index];
+        split_dataset->labels[i] = dataset->labels[old_index];
+        split_dataset->view_indices[i] = i;
     }   
     return split_dataset; 
 }
