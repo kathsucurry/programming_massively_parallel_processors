@@ -27,7 +27,7 @@ void train_model(ImageDataset *dataset) {
 
     // Perform simple dataset split into training and validation.
     // Another approach is to assess the label distribution and split based on that
-    // assuming that the test data distribution follows the training data distribution.
+    // assuming the test data distribution follows the training data distribution.
     uint32_t num_train_samples = DATASET_SPLIT_TRAIN_PROPORTION * num_samples;
     uint32_t num_valid_samples = (1 - DATASET_SPLIT_TRAIN_PROPORTION) * num_samples;
 
@@ -36,10 +36,23 @@ void train_model(ImageDataset *dataset) {
 
     ImageDataset *train = split_dataset(dataset, shuffled_indices, num_train_samples);
     ImageDataset *valid = split_dataset(dataset, &shuffled_indices[num_train_samples], num_valid_samples);
+    if (train == NULL || valid == NULL) {
+        printf("Error in dataset split.");
+        return;
+    }
+
+    // Prepare the model architecture: conv -> sigmoid -> pooling -> flatten -> linear -> softmax.
+    // Initialize conv and linear layer weights.
+    float *test = _uniform_xavier_initialization_1d(25, 75, 10);
+    for (int i = 0; i < 10; ++i)
+        printf("%.2f ", test[i]);
+    printf("\n");
+
+    // Initialize network weights.
 
 
     // Define number of epochs.
-    // For each epoch, run forward pass, evaluate on validation, backward pass.
+    // For each epoch, run forward pass, evaluate on validation (i.e., forward pass + assess), backward pass.
 }
 
 void eval_model() {
@@ -64,8 +77,8 @@ int main() {
         "../../Dataset/mnist/t10k-labels-idx1-ubyte"
     );
 
-    printf("#Samples in training set: %d\n", train_dataset->num_samples);
-    printf("#Samples in test set: %d\n", test_dataset->num_samples);
+    printf("# Samples in training set: %d\n", train_dataset->num_samples);
+    printf("# Samples in test set: %d\n", test_dataset->num_samples);
 
     // Normalize the pixel values to [0..1].
     ImageDataset *transformed_train_dataset = add_padding(
@@ -77,31 +90,5 @@ int main() {
 
     train_model(transformed_train_dataset);
 
-
-    // for (int i = 4; i < 5; ++i) {
-    //     printf("%d\n", transformed_train_dataset->labels[i]);
-    //     printf("%d\n", transformed_train_dataset->images[i].height);
-    //     printf("%d\n", transformed_train_dataset->images[i].width);
-    //     for (int row = 0; row < 32; ++row) {
-    //         for (int col = 0; col < 32; ++col) {
-    //             printf("%.02f ", transformed_train_dataset->images[i].pixels[row * 28 + col]);
-    //         }
-    //         printf("\n");
-    //     }
-    //     printf("\n");
-    // }
-
-    // Define model architecture.
-
-    
-
-
-
-    // conv -> pooling -> conv -> pooling -> full connection -> output
-
-    // For each epoch:
-    // - forward pass
-    // - calculate loss
-    // - back prop
-    // - run inference for validation set --> get metric (loss + f1)
+    // Run evaluation on the test set.
 }

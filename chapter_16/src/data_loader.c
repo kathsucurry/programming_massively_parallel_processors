@@ -131,6 +131,22 @@ MNISTDataset *load_mnist_dataset(const char *images_file_path, const char *label
 }
 
 
+uint32_t *shuffle_indices(uint32_t num_samples, uint8_t seed) {
+    uint32_t *indices = malloc(num_samples * sizeof(uint32_t));
+    for (uint32_t i = 0; i < num_samples; ++i)
+        indices[i] = i;
+    
+    srand(seed);
+    for (uint32_t init_index = 0; init_index < num_samples; ++init_index) {
+        uint32_t index_to_swap = rand() % num_samples;
+        uint32_t temp = indices[init_index];
+        indices[init_index] = indices[index_to_swap];
+        indices[index_to_swap] = temp;
+    }
+    return indices;
+}
+
+
 ImageDataset *split_dataset(ImageDataset *dataset, uint32_t *indices, uint32_t num_samples) {
     if (num_samples >= dataset->num_samples) {
         printf("Error in dataset split: number of samples for the new split exceeds the initial number of samples.");
@@ -142,10 +158,8 @@ ImageDataset *split_dataset(ImageDataset *dataset, uint32_t *indices, uint32_t n
     split_dataset->images = malloc(num_samples * sizeof(Image));
     split_dataset->labels = malloc(num_samples * sizeof(uint8_t));
     for (uint32_t i = 0; i < num_samples; ++i) {
-        printf("%u ", indices[i]);
         split_dataset->images[i] = dataset->images[indices[i]];
         split_dataset->labels[i] = dataset->labels[indices[i]];
     }   
-    printf("\n\n");
     return split_dataset; 
 }

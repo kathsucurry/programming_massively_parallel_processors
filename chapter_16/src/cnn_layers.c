@@ -1,19 +1,58 @@
 #include <stdint.h>
 #include <stdlib.h>
-#include "common.h"
+#include <math.h>
+#include <stdio.h>
+
+#include "cnn_layers.h"
 
 
-uint32_t *shuffle_indices(uint32_t num_samples, uint8_t seed) {
-    uint32_t *indices = malloc(num_samples * sizeof(uint32_t));
-    for (uint32_t i = 0; i < num_samples; ++i)
-        indices[i] = i;
-    
-    srand(seed);
-    for (uint32_t init_index = 0; init_index < num_samples; ++init_index) {
-        uint32_t index_to_swap = rand() % num_samples;
-        uint32_t temp = indices[init_index];
-        indices[init_index] = indices[index_to_swap];
-        indices[index_to_swap] = temp;
+float *_uniform_xavier_initialization_1d(uint32_t fan_in, uint32_t fan_out, uint8_t size) {
+    // Assume gain = 1.
+    float x = sqrtf(6.0 / (fan_in + fan_out));
+    float *array = malloc(size * sizeof(float));
+    for (uint8_t i = 0; i < size; ++i)
+        array[i] = x * 2 * (rand() * 1.0 / RAND_MAX) - x; 
+    return array;
+}
+
+
+float **_uniform_xavier_initialization_2d(uint32_t fan_in, uint32_t fan_out, uint8_t height, uint8_t width) {
+    // Assume gain = 1.
+    float x = sqrtf(6.0 / (fan_in + fan_out));
+
+    float **array = (float **)malloc(height * sizeof(float));
+    for (uint8_t row = 0; row < height; ++row) {
+        array[row] = (float *)malloc(width * sizeof(float));
+        for (uint8_t col = 0; col < width; ++col) {
+            array[row][col] = x * 2 * (rand() * 1.0 / RAND_MAX) - x; 
+        }
     }
-    return indices;
+    return array;
+}
+
+
+// For simplicity, assume stride is always 1.
+Conv2DLayerWeights *initialize_conv_layer(
+    uint8_t in_channels,
+    uint8_t out_channels,
+    uint8_t num_filters,
+    uint8_t filter_size
+) {
+    Conv2DLayerWeights *conv = malloc(sizeof(Conv2DLayerWeights));
+
+    uint32_t fan_in = in_channels * filter_size * filter_size;
+    uint32_t fan_out = out_channels * filter_size * filter_size;
+    conv->filters = _uniform_xavier_initialization_2d(fan_in, fan_out, filter_size, filter_size);
+    conv->filter_size = filter_size;
+    conv->num_filters = num_filters;
+    return conv;
+}
+
+
+LinearLayerWeights *initialize_linear_layer(uint8_t in_channels, uint8_t out_channels) {
+    LinearLayerWeights *linear = malloc(sizeof(LinearLayerWeights));
+    linear->in_channels = in_channels;
+    linear->out_channels = out_channels;
+    linear->weights = _uniform_xavier_initialization_2d(in_channels, out_channels, out_channels, in_channels);
+    return linear;
 }

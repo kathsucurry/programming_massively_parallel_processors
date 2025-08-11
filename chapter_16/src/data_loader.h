@@ -37,8 +37,11 @@ typedef struct {
     uint32_t num_samples;
 } ImageDataset;
 
-
+// IO.
 MNISTDataset *load_mnist_dataset(const char *images_file_path, const char *labels_file_path);
+
+// Dataset split.
+uint32_t *shuffle_indices(uint32_t num_samples, uint8_t seed);
 ImageDataset *split_dataset(ImageDataset *dataset, uint32_t *indices, uint32_t num_samples);
 
 
