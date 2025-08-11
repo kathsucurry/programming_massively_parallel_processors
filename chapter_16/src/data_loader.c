@@ -3,7 +3,7 @@
 #include <byteswap.h>
 #include <stdlib.h>
 
-#include "mnist_read.h"
+#include "data_loader.h"
 
 
 uint8_t *_uint32_to_byte(uint32_t number) {
@@ -128,4 +128,24 @@ MNISTDataset *load_mnist_dataset(const char *images_file_path, const char *label
     dataset->labels = labels;
     dataset->num_samples = num_images_samples;
     return dataset;
+}
+
+
+ImageDataset *split_dataset(ImageDataset *dataset, uint32_t *indices, uint32_t num_samples) {
+    if (num_samples >= dataset->num_samples) {
+        printf("Error in dataset split: number of samples for the new split exceeds the initial number of samples.");
+        return NULL;
+    }
+
+    ImageDataset *split_dataset = malloc(sizeof(ImageDataset));
+    split_dataset->num_samples = num_samples;
+    split_dataset->images = malloc(num_samples * sizeof(Image));
+    split_dataset->labels = malloc(num_samples * sizeof(uint8_t));
+    for (uint32_t i = 0; i < num_samples; ++i) {
+        printf("%u ", indices[i]);
+        split_dataset->images[i] = dataset->images[indices[i]];
+        split_dataset->labels[i] = dataset->labels[indices[i]];
+    }   
+    printf("\n\n");
+    return split_dataset; 
 }

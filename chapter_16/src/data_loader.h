@@ -39,6 +39,7 @@ typedef struct {
 
 
 MNISTDataset *load_mnist_dataset(const char *images_file_path, const char *labels_file_path);
+ImageDataset *split_dataset(ImageDataset *dataset, uint32_t *indices, uint32_t num_samples);
 
 
 #endif

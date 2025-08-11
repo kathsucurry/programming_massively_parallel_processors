@@ -2,7 +2,7 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "mnist_read.h"
+#include "data_loader.h"
 #include "common.h"
 
 
