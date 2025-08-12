@@ -2,12 +2,14 @@
 #include <stdint.h>
 #include <byteswap.h>
 #include <stdlib.h>
+#include <string.h>
 
-#include "data_loader.h"
+#include "data_loader.cuh"
+#include "common.h"
 
 
 uint8_t *_uint32_to_byte(uint32_t number) {
-    uint8_t *array = malloc(4 * sizeof(uint8_t));
+    uint8_t *array = (uint8_t *)malloc(4 * sizeof(uint8_t));
     array[0] = (uint8_t)(number >> 24);
     array[1] = (uint8_t)(number >> 16);
     array[2] = (uint8_t)(number >>  8);
@@ -41,7 +43,10 @@ uint8_t _load_dimension_from_idx_file_header(FILE *stream) {
         return invalid_return_value;
     }
 
-    return magic_byte_array[3];
+    uint8_t num_dim = magic_byte_array[3];
+    free(magic_byte_array);
+
+    return num_dim;
 }
 
 
@@ -70,7 +75,7 @@ MNISTImage *_load_images_from_idx_file(const char *file_path, uint32_t *num_samp
     uint32_t image_size = image_height * image_width;
     MNISTImage *images = (MNISTImage *)malloc(*num_samples * sizeof(MNISTImage));
     for (int i = 0; i < *num_samples; ++i) {
-        uint8_t *pixels = malloc(image_size * sizeof(uint8_t));
+        uint8_t *pixels = (uint8_t *)malloc(image_size * sizeof(uint8_t));
         fread(pixels, image_size * sizeof(uint8_t), 1, stream);
 
         MNISTImage image = {.pixels=pixels, .height=image_height, .width=image_width};
@@ -101,7 +106,7 @@ uint8_t *_load_labels_from_idx_file(const char *file_path, uint32_t *num_samples
     if (*num_samples == invalid_return_value)
         return NULL;
     
-    uint8_t *labels = malloc(*num_samples * sizeof(uint8_t));
+    uint8_t *labels = (uint8_t *)malloc(*num_samples * sizeof(uint8_t));
     fread(labels, *num_samples * sizeof(uint8_t), 1, stream);
     fclose(stream);
 
@@ -123,11 +128,32 @@ MNISTDataset *load_mnist_dataset(const char *images_file_path, const char *label
         printf("The number of images (n=%u) and labels (n=%u) are not consistent.\n", num_images_samples, num_labels_samples);
     }
 
-    MNISTDataset *dataset = malloc(sizeof(MNISTDataset));
+    MNISTDataset *dataset = (MNISTDataset *)malloc(sizeof(MNISTDataset));
     dataset->images = images;
     dataset->labels = labels;
     dataset->num_samples = num_images_samples;
     return dataset;
+}
+
+
+void free_mnist_dataset(MNISTDataset *dataset) {
+    for (uint32_t i = 0; i < dataset->num_samples; ++i) {
+        free(dataset->images[i].pixels);
+    }
+    free(dataset->images);
+    free(dataset->labels);
+    free(dataset);
+}
+
+
+void free_image_dataset(ImageDataset *dataset) {
+    for (uint32_t i = 0; i < dataset->num_samples; ++i) {
+        free(dataset->images[i].pixels);
+    }
+    free(dataset->images);
+    free(dataset->view_indices);
+    free(dataset->labels);
+    free(dataset);
 }
 
 
@@ -150,11 +176,11 @@ ImageDataset *split_dataset(ImageDataset *dataset, uint32_t begin_index, uint32_
         return NULL;
     }
 
-    ImageDataset *split_dataset = malloc(sizeof(ImageDataset));
+    ImageDataset *split_dataset = (ImageDataset *)malloc(sizeof(ImageDataset));
     split_dataset->num_samples = num_samples;
-    split_dataset->images = malloc(num_samples * sizeof(Image));
-    split_dataset->labels = malloc(num_samples * sizeof(uint8_t));
-    split_dataset->view_indices = malloc(num_samples * sizeof(uint32_t));
+    split_dataset->images = (Image *)malloc(num_samples * sizeof(Image));
+    split_dataset->labels = (uint8_t *)malloc(num_samples * sizeof(uint8_t));
+    split_dataset->view_indices = (uint32_t *)malloc(num_samples * sizeof(uint32_t));
     for (uint32_t i = 0; i < num_samples; ++i) {
         uint32_t old_index = dataset->view_indices[begin_index + i];
         split_dataset->images[i] = dataset->images[old_index];
@@ -162,4 +188,14 @@ ImageDataset *split_dataset(ImageDataset *dataset, uint32_t begin_index, uint32_
         split_dataset->view_indices[i] = i;
     }   
     return split_dataset; 
+}
+
+
+void prepare_batch(float X[], uint8_t y[], ImageDataset *dataset, uint32_t num_samples_in_batch) {
+    uint32_t image_size = dataset->images[0].height * dataset->images[0].width;
+    for (uint32_t i = 0; i < num_samples_in_batch; ++i) {
+        uint32_t index = dataset->view_indices[i];
+        memcpy(&X[i * image_size], dataset->images[index].pixels, image_size * sizeof(float));
+        y[i] = dataset->labels[dataset->view_indices[i]];
+    }
 }

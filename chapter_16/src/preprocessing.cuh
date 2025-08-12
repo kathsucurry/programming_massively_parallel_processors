@@ -2,7 +2,7 @@
 #define PREPROCESSING
 
 #include <stdint.h>
-#include "data_loader.h"
+#include "data_loader.cuh"
 
 
 ImageDataset *prepare_dataset(MNISTDataset *dataset);

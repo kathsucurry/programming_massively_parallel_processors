@@ -7,26 +7,29 @@
 
 // Exclude bias for simplicity.
 typedef struct {
-    uint8_t num_filters;
-    float **filters;
+    uint32_t in_channels;
+    uint32_t out_channels;
     uint8_t filter_size;
-} Conv2DLayerWeights;
+    float *filters_d; // Learnable weights.
+} Conv2DLayer;
 
 typedef struct {
-    uint8_t in_channels;
-    uint8_t out_channels;
-    float **weights;
-} LinearLayerWeights;
+    uint32_t in_channels;
+    uint32_t out_channels;
+    float *weights_d;
+} LinearLayer;
 
 typedef struct {
-    Conv2DLayerWeights* conv2_weights;
-    LinearLayerWeights* linear_weights;
+    Conv2DLayer* conv2d;
+    LinearLayer* linear;
 } NetworkWeights;
 
-float *_uniform_xavier_initialization_1d(uint32_t fan_in, uint32_t fan_out, uint8_t size);
-float **_uniform_xavier_initialization_2d(uint32_t fan_in, uint32_t fan_out, uint8_t height, uint8_t width);
-Conv2DLayerWeights *initialize_conv_layer_weights(uint8_t in_channels, uint8_t out_channels, uint8_t filter_size);
-LinearLayerWeights *initialize_linear_layer_weights(uint8_t in_channels, uint8_t out_channels);
+Conv2DLayer *initialize_conv_layer_weights(uint32_t in_channels, uint32_t out_channels, uint8_t filter_size);
+LinearLayer *initialize_linear_layer_weights(uint32_t in_channels, uint32_t out_channels);
 
+
+
+// CUDA Kernels.
+__global__ void run_conv2_forward();
 
 #endif
