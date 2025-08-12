@@ -17,10 +17,6 @@
 #include "src/cnn_layers.cuh"
 
 
-#define BLOCK_NUM 256
-#define THREADS_NUM_PER_BLOCK 1024
-
-
 void eval_model() {
 
 }
@@ -38,19 +34,16 @@ void eval_model() {
  * - Softmax layer
  * 
  */
-float *forward_pass(
+Tensor *forward_pass(
     float *X_d, uint8_t *y_d,
     NetworkWeights *network_weights_d,
     uint32_t image_height,
     uint32_t image_width,
     uint32_t num_samples
 ) {
-    dim3 dimBlock(THREADS_NUM_PER_BLOCK);
-    dim3 dimGrid(BLOCK_NUM);
-    run_conv2_forward<<<dimGrid, dimBlock>>>();
+    Tensor *output = run_conv2_forward(X_d, network_weights_d->conv2d_weight, num_samples, image_height, image_width);
 
-
-    return NULL;
+    return output;
 }
 
 void backward_pass() {}
@@ -75,8 +68,8 @@ NetworkWeights *train_model(ImageDataset *dataset, uint32_t batch_size) {
     // Prepare the model architecture: conv -> sigmoid -> pooling -> flatten -> linear -> softmax.
     // Initialize conv and linear layer weights using device memory.
     NetworkWeights *network_weights = (NetworkWeights *)malloc(sizeof(NetworkWeights));
-    network_weights->conv2d = initialize_conv_layer_weights((uint32_t) 1, (uint32_t) 16, 5);
-    // network_weights->linear = initialize_linear_layer_weights((uint32_t) 3136, (uint32_t) 10);
+    network_weights->conv2d_weight = initialize_conv_layer_weights(1, 16, 5);
+    network_weights->linear_weight = initialize_linear_layer_weights(3136, 10);
 
     uint32_t num_epochs = 5;
     uint32_t num_epochs_valid_iter = 2;
@@ -108,11 +101,13 @@ NetworkWeights *train_model(ImageDataset *dataset, uint32_t batch_size) {
             cudaMemcpy(train_X_d, train_X, num_samples_in_batch * image_size * sizeof(float), cudaMemcpyHostToDevice);
             cudaMemcpy(train_y_d, train_y, num_samples_in_batch * sizeof(uint8_t), cudaMemcpyHostToDevice);
 
-            float *train_logits = forward_pass(train_X_d, train_y_d, network_weights, image_height, image_width, BATCH_SIZE);
+            Tensor *train_logits = forward_pass(train_X_d, train_y_d, network_weights, image_height, image_width, num_samples_in_batch);
+            break;
             // Calculate loss.
             // Backward propagation.
             
         }
+        break;
         if (epoch_index > 0 && epoch_index % num_epochs_valid_iter == 0) {
             // float *valid_X[BATCH_SIZE * image_size];
             // uint8_t valid_y[BATCH_SIZE];

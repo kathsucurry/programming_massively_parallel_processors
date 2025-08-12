@@ -5,31 +5,41 @@
 #include <stdint.h>
 
 
-// Exclude bias for simplicity.
 typedef struct {
-    uint32_t in_channels;
-    uint32_t out_channels;
-    uint8_t filter_size;
-    float *filters_d; // Learnable weights.
-} Conv2DLayer;
+    bool is_device; // True if values is from the device memory.
+    uint8_t num_dim;
+    uint32_t *dim;
+    float *values; // Stored in row-major format.
+} Tensor;
 
-typedef struct {
-    uint32_t in_channels;
-    uint32_t out_channels;
-    float *weights_d;
-} LinearLayer;
 
+// Assume only one 1 conv and 1 linear layers.
 typedef struct {
-    Conv2DLayer* conv2d;
-    LinearLayer* linear;
+    Tensor *conv2d_weight;
+    Tensor *linear_weight;
 } NetworkWeights;
 
-Conv2DLayer *initialize_conv_layer_weights(uint32_t in_channels, uint32_t out_channels, uint8_t filter_size);
-LinearLayer *initialize_linear_layer_weights(uint32_t in_channels, uint32_t out_channels);
 
+Tensor *initialize_conv_layer_weights(uint32_t in_channels, uint32_t out_channels, uint8_t filter_size);
+Tensor *initialize_linear_layer_weights(uint32_t in_channels, uint32_t out_channels);
+
+Tensor *run_conv2_forward(
+    float *X_d,
+    Tensor *filters,
+    uint32_t num_samples,
+    uint32_t in_height,
+    uint32_t in_width
+);
 
 
 // CUDA Kernels.
-__global__ void run_conv2_forward();
+__global__ void Conv2ForwardKernel(
+    float *X, float *Y,
+    Tensor *filters,
+    uint32_t num_samples,
+    uint32_t grid_height, uint32_t grid_width,
+    uint32_t in_height, uint32_t in_width
+);
+
 
 #endif
