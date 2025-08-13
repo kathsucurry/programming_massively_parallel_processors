@@ -41,7 +41,7 @@ Tensor *forward_pass(
     uint32_t image_width,
     uint32_t num_samples
 ) {
-    Tensor *output = run_conv2_forward(X_d, network_weights_d->conv2d_weight, num_samples, image_height, image_width);
+    Tensor *output = run_conv2d_forward(X_d, network_weights_d->conv2d_weight, num_samples, image_height, image_width);
 
     return output;
 }
@@ -68,8 +68,8 @@ NetworkWeights *train_model(ImageDataset *dataset, uint32_t batch_size) {
     // Prepare the model architecture: conv -> sigmoid -> pooling -> flatten -> linear -> softmax.
     // Initialize conv and linear layer weights using device memory.
     NetworkWeights *network_weights = (NetworkWeights *)malloc(sizeof(NetworkWeights));
-    network_weights->conv2d_weight = initialize_conv_layer_weights(1, 16, 5);
-    network_weights->linear_weight = initialize_linear_layer_weights(3136, 10);
+    network_weights->conv2d_weight = initialize_conv_layer_weights(1, 16, 5, 0);
+    network_weights->linear_weight = initialize_linear_layer_weights(3136, 10, 0);
 
     uint32_t num_epochs = 5;
     uint32_t num_epochs_valid_iter = 2;
