@@ -5,10 +5,17 @@
 #include <cuda_runtime.h>
 
 #include "cnn_layers.cuh"
+#include "kernel_functions.cuh"
 #include "common.h"
 
 
-#define TILE_WIDTH 32
+Tensor *initialize_tensor() {
+    Tensor *tensor = (Tensor *)malloc(sizeof(Tensor));
+    tensor->num_dim = 0;
+    tensor->dim = NULL;
+    tensor->values_d = NULL;
+    return tensor;
+}
 
 
 float *_uniform_xavier_initialization(uint32_t fan_in, uint32_t fan_out, uint32_t size, uint32_t seed) {
@@ -93,7 +100,8 @@ void free_tensor(Tensor *tensor) {
 /**
  * Conv2 kernel implementation, following the tiled method in chapter 16.3
  */
-Tensor *run_conv2d_forward(
+void run_conv2d_forward(
+    Tensor *output,
     float *X_d,
     Tensor *filters,
     uint32_t num_samples,
@@ -127,7 +135,6 @@ Tensor *run_conv2d_forward(
         out_height, out_width
     );
 
-    Tensor *output = (Tensor *)malloc(sizeof(Tensor));
     output->num_dim = 4;
 
     uint32_t *dim = (uint32_t *)malloc(output->num_dim * sizeof(uint32_t));
@@ -138,53 +145,33 @@ Tensor *run_conv2d_forward(
 
     output->dim = dim;
     output->values_d = Y_d;
-
-    return output;
 }
 
 
-/**
- * Conv2 kernel implementation, following the method in chapter 16.3 (Fig. 16.13,14).
- */
-__global__ void Conv2ForwardKernel(
-    float *X, float *Y,
-    float *filters,
-    uint32_t kernel_length,
-    uint32_t in_channels,
-    uint32_t grid_height, uint32_t grid_width,
-    uint32_t in_height, uint32_t in_width,
-    uint32_t out_height, uint32_t out_width
-) {
-    uint32_t out_channel_idx = blockIdx.x;
-    uint32_t out_height_idx  = (blockIdx.y / grid_width)*TILE_WIDTH + threadIdx.y;
-    uint32_t out_width_idx   = (blockIdx.y % grid_width)*TILE_WIDTH + threadIdx.x;
-    uint32_t sample_idx      = blockIdx.z;
-    uint32_t out_channels = gridDim.x;
+void run_sigmoid_forward(Tensor *tensor) {
+    uint32_t num_samples    = tensor->dim[0];
+    uint32_t num_channels   = tensor->dim[1];
+    uint32_t feature_height = tensor->dim[2];
+    uint32_t feature_width  = tensor->dim[3];
+    uint32_t out_size       = num_samples * num_channels * feature_height * feature_width;
 
-    if (out_height_idx >= out_height || out_width_idx >= out_width)
-        return;
-    
-    float value = 0.0f;
-    for (uint32_t in_channel_idx = 0; in_channel_idx < in_channels; ++in_channel_idx)
-        for (uint32_t k_row = 0; k_row < kernel_length; ++k_row)
-            for (uint32_t k_col = 0; k_col < kernel_length; ++k_col) {
-                uint32_t in_row = out_height_idx + k_row;
-                uint32_t in_col = out_width_idx + k_col;
-                
-                uint32_t X_idx = (sample_idx * in_channels * in_height * in_width) + 
-                    (in_channel_idx * in_height * in_width) + 
-                    (in_row * in_width) + 
-                    in_col;
-                uint32_t weight_idx = (out_channel_idx * in_channels * kernel_length * kernel_length) +
-                    (in_channel_idx * kernel_length * kernel_length) +
-                    (k_row * kernel_length) +
-                    k_col;
-                value += X[X_idx] * filters[weight_idx];
-            }
-    
-    uint32_t Y_idx = (sample_idx * out_channels * out_height * out_width) + 
-            (out_channel_idx * out_height * out_width) +
-            (out_height_idx * out_width) +
-            out_width_idx;
-    Y[Y_idx] = value;
+    float *Y_d;
+    cudaMalloc((void**)&Y_d, out_size * sizeof(float));
+
+    uint32_t grid_height = ceil(feature_height * 1.0 / TILE_WIDTH);
+    uint32_t grid_width = ceil(feature_width * 1.0 / TILE_WIDTH);
+    uint32_t out_tiles_num = grid_width * grid_height;
+
+    dim3 dimBlock(TILE_WIDTH, TILE_WIDTH);
+    dim3 dimGrid(num_channels, out_tiles_num, num_samples);
+
+    SigmoidForwardKernel<<<dimGrid, dimBlock>>>(
+        tensor->values_d, Y_d,
+        grid_height, grid_width,
+        feature_height, feature_width
+    );
+
+    Tensor *output = (Tensor *)malloc(sizeof(Tensor));
+    cudaFree(tensor->values_d);
+    tensor->values_d = Y_d;
 }

@@ -19,12 +19,14 @@ typedef struct {
 } NetworkWeights;
 
 
+Tensor *initialize_tensor();
 Tensor *initialize_conv_layer_weights(uint32_t in_channels, uint32_t out_channels, uint8_t filter_size, uint32_t seed);
 Tensor *initialize_linear_layer_weights(uint32_t in_channels, uint32_t out_channels, uint32_t seed);
 uint32_t get_tensor_values_size(const uint8_t num_dim, const uint32_t *dim);
 void free_tensor(Tensor *tensor);
 
-Tensor *run_conv2d_forward(
+void run_conv2d_forward(
+    Tensor *output,
     float *X_d,
     Tensor *filters,
     uint32_t num_samples,
@@ -33,17 +35,7 @@ Tensor *run_conv2d_forward(
 );
 
 
-// CUDA Kernels.
-__global__ void Conv2ForwardKernel(
-    float *X, float *Y,
-    float *filters,
-    uint32_t kernel_length,
-    uint32_t in_channels,
-    uint32_t grid_height, uint32_t grid_width,
-    uint32_t in_height, uint32_t in_width,
-    uint32_t out_height, uint32_t out_width
-);
-
+void run_sigmoid_forward(Tensor *tensor);
 
 
 #endif

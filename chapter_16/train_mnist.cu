@@ -41,7 +41,27 @@ Tensor *forward_pass(
     uint32_t image_width,
     uint32_t num_samples
 ) {
-    Tensor *output = run_conv2d_forward(X_d, network_weights_d->conv2d_weight, num_samples, image_height, image_width);
+    Tensor *output = initialize_tensor();
+    run_conv2d_forward(output, X_d, network_weights_d->conv2d_weight, num_samples, image_height, image_width);
+    run_sigmoid_forward(output);
+
+    uint32_t sample_size = get_tensor_values_size(output->num_dim, output->dim) / output->dim[0];
+
+    uint32_t show_sample_index = 5;
+    float *values = (float *)malloc(sample_size * sizeof(float));
+    cudaMemcpy(values, &output->values_d[show_sample_index*sample_size], sample_size * sizeof(float), cudaMemcpyDeviceToHost);
+
+    uint32_t feature_map_size = output->dim[2] * output->dim[3];
+
+    for (uint32_t feature_index = 0; feature_index < output->dim[1]; ++feature_index) {
+        printf("Feature map %u:\n", feature_index);
+        for (uint32_t row = 0; row < output->dim[2]; ++row) {
+            for (uint32_t col = 0; col < output->dim[3]; ++col) {
+                printf("%8.3f", values[feature_index * feature_map_size + row * output->dim[3] + col]);
+            }
+            printf("\n");
+        }
+    }
 
     return output;
 }
@@ -69,7 +89,7 @@ NetworkWeights *train_model(ImageDataset *dataset, uint32_t batch_size) {
     // Initialize conv and linear layer weights using device memory.
     NetworkWeights *network_weights = (NetworkWeights *)malloc(sizeof(NetworkWeights));
     network_weights->conv2d_weight = initialize_conv_layer_weights(1, 16, 5, 0);
-    network_weights->linear_weight = initialize_linear_layer_weights(3136, 10, 0);
+    network_weights->linear_weight = initialize_linear_layer_weights(3136, 10, 1);
 
     uint32_t num_epochs = 5;
     uint32_t num_epochs_valid_iter = 2;
