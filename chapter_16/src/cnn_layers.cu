@@ -61,17 +61,17 @@ Tensor *initialize_conv_layer_weights(
 }
 
 
-Tensor *initialize_linear_layer_weights(uint32_t in_channels, uint32_t out_channels, uint32_t seed) {
+Tensor *initialize_linear_layer_weights(uint32_t in_features, uint32_t out_features, uint32_t seed) {
     Tensor *linear_weight = (Tensor *)malloc(sizeof(Tensor));
     linear_weight->num_dim = 2;
 
     uint32_t *dim = (uint32_t *)malloc(linear_weight->num_dim * sizeof(uint32_t));
-    dim[0] = out_channels;
-    dim[1] = in_channels;
+    dim[0] = out_features;
+    dim[1] = in_features;
     linear_weight->dim = dim;
-    uint32_t weight_size = out_channels * in_channels;
+    uint32_t weight_size = out_features * in_features;
 
-    float *weights = _uniform_xavier_initialization(in_channels, out_channels, weight_size, seed);
+    float *weights = _uniform_xavier_initialization(in_features, out_features, weight_size, seed);
     float *weights_d;
     cudaMalloc((void**)&weights_d, weight_size * sizeof(float));
     cudaMemcpy(weights_d, weights, weight_size * sizeof(float), cudaMemcpyHostToDevice);
@@ -108,8 +108,6 @@ void run_conv2d_forward(
     uint32_t in_height,
     uint32_t in_width
 ) {
-    float *Y_d;
-
     uint32_t filter_length = filters->dim[filters->num_dim - 2];
     uint32_t out_height    = in_height - filter_length + 1;
     uint32_t out_width     = in_width - filter_length + 1;
@@ -117,6 +115,7 @@ void run_conv2d_forward(
     uint32_t in_channels   = filters->dim[1];
     uint32_t out_size      = num_samples * out_channels * out_height * out_width;
 
+    float *Y_d;
     cudaMalloc((void**)&Y_d, out_size * sizeof(float));
 
     uint32_t grid_width = ceil(out_width * 1.0 / TILE_WIDTH);
@@ -232,4 +231,30 @@ void run_flatten_layer(Tensor *tensor) {
     dim[0] = num_samples;
     dim[1] = size;
     tensor->dim = dim;
+}
+
+
+void run_linear_layer(Tensor *X, Tensor *linear_weights) {
+    uint32_t in_features  = linear_weights->dim[1];
+    uint32_t out_features = linear_weights->dim[0];
+    uint32_t num_samples  = X->dim[0];
+    uint32_t out_size     = num_samples * out_features;
+
+    float *Y_d;
+    cudaMalloc((void**)&Y_d, out_size * sizeof(float));
+
+    dim3 dimBlock(TILE_WIDTH, TILE_WIDTH);
+    dim3 dimGrid(ceil(out_features * 1.0 / (TILE_WIDTH * THREAD_COARSENING_FACTOR)), ceil(num_samples * 1.0 / TILE_WIDTH));
+    LinearForwardKernel<<<dimGrid, dimBlock>>>(
+        X->values_d,
+        linear_weights->values_d,
+        Y_d,
+        num_samples,
+        in_features, out_features
+    );
+
+    // Update tensor.
+    X->dim[1] = out_features;
+    cudaFree(X->values_d);
+    X->values_d = Y_d;
 }

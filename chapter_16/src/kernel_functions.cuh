@@ -4,11 +4,10 @@
 
 #include <stdint.h>
 
-#define TILE_WIDTH 32
-#define THREAD_COARSENING_FACTOR 8
+#define TILE_WIDTH 2
+#define THREAD_COARSENING_FACTOR 3
 
 enum pooling_type { MAX, MEAN };
-
 
 
 __global__ void Conv2ForwardKernel(
@@ -36,6 +35,14 @@ __global__ void PoolForwardKernel(
     uint32_t grid_height, uint32_t grid_width,
     uint32_t in_height, uint32_t in_width,
     uint32_t out_height, uint32_t out_width
+);
+
+
+__global__ void LinearForwardKernel(
+    float *X, float *Y,
+    float *linear_weights,
+    uint32_t num_samples,
+    uint32_t in_features, uint32_t out_features
 );
 
 

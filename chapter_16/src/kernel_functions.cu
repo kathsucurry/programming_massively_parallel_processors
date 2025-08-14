@@ -123,3 +123,58 @@ __global__ void PoolForwardKernel(
             out_width_idx;
     Y[Y_idx] = value;
 }
+
+
+/**
+ * Given X and A, perform matrix multiplication (X, A.T).
+ */
+__global__ void LinearForwardKernel(
+    float *X, float *A, float *Y,
+    uint32_t num_samples,
+    uint32_t in_features, uint32_t out_features
+) {
+    __shared__ float  shared_X[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float shared_AT[TILE_WIDTH][TILE_WIDTH];
+
+    // Identify the row and column of the output element.
+    uint32_t row = blockIdx.y * TILE_WIDTH + threadIdx.y;
+    uint32_t col_offset = blockIdx.x * TILE_WIDTH * THREAD_COARSENING_FACTOR + threadIdx.x;
+
+    // Initialize values.
+    float out_values[THREAD_COARSENING_FACTOR];
+    for (uint8_t c = 0; c < THREAD_COARSENING_FACTOR; ++c)
+        out_values[c] = 0.0f;
+    
+    // Loop over tiles.
+    for (uint32_t phase = 0; phase < ceil(in_features * 1.0 / TILE_WIDTH); ++phase) {
+        uint32_t X_index = row * in_features + phase * TILE_WIDTH + threadIdx.x;
+
+        // Collaboratively load the features1 tile into shared memory.
+        if (row < num_samples && phase * TILE_WIDTH + threadIdx.x < in_features)
+            shared_X[threadIdx.y][threadIdx.x] = X[X_index];
+        else
+            shared_X[threadIdx.y][threadIdx.x] = 0.0f;
+    
+        for (uint8_t c = 0; c < THREAD_COARSENING_FACTOR; ++c) {
+            uint32_t col = col_offset + c * TILE_WIDTH;
+            uint32_t A_index = col * in_features + phase * TILE_WIDTH + threadIdx.y;
+
+            // Collaboratively load the features2 tile into shared memory.
+            if (phase * TILE_WIDTH + threadIdx.y < in_features && col < out_features)
+                shared_AT[threadIdx.y][threadIdx.x] = A[A_index];
+            else
+                shared_AT[threadIdx.y][threadIdx.x] = 0.0f;
+            __syncthreads();
+
+            for (uint32_t i = 0; i < TILE_WIDTH; ++i)
+                out_values[c] += shared_X[threadIdx.y][i] * shared_AT[i][threadIdx.x];
+            __syncthreads();
+        }
+    }
+
+    for (uint8_t c = 0; c < THREAD_COARSENING_FACTOR; ++c) {
+        uint32_t col = col_offset + c * TILE_WIDTH;
+        if (row < num_samples && col < out_features)
+            Y[row * out_features + col] = out_values[c];
+    }
+}

@@ -6,6 +6,7 @@
 
 #include "kernel_functions.cuh"
 
+
 typedef struct {
     uint8_t num_dim;
     uint32_t *dim;
@@ -27,6 +28,7 @@ uint32_t get_tensor_values_size(const uint8_t num_dim, const uint32_t *dim);
 void free_tensor(Tensor *tensor);
 
 /* Forward layer functions */
+
 void run_conv2d_forward(
     Tensor *output,
     float *X_d,
@@ -42,6 +44,8 @@ void run_sigmoid_forward(Tensor *tensor);
 void run_pooling_forward(Tensor *tensor, uint32_t kernel_length, pooling_type pool_type);
 
 void run_flatten_layer(Tensor *tensor);
+
+void run_linear_layer(Tensor *tensor, Tensor *linear_weights);
 
 
 #endif

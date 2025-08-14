@@ -14,11 +14,6 @@
 #include "src/cnn_layers.cuh"
 
 
-void print_tensor_values(Tensor *tensor) {
-    
-}
-
-
 void print_conv2d_weight_init_example(uint32_t in_channels, uint32_t out_channels, uint8_t filter_size) {
     printf("--> Assess the conv layer weight initialization...");
     
@@ -48,7 +43,7 @@ void print_conv2d_weight_init_example(uint32_t in_channels, uint32_t out_channel
  * Generate a tiny dataset where all images are the same with float pixel values [0..image_height * image_width);
  */
 ImageDataset *generate_tiny_dataset(uint32_t num_samples, uint32_t image_height, uint32_t image_width) {
-    printf("--> Generate a tiny dataset with %u samples and images of [%u x %u]...", num_samples, image_height, image_width);
+    printf("--> Generate a tiny dataset with %u samples and images of [%u x %u]...\n", num_samples, image_height, image_width);
 
     ImageDataset *dataset = (ImageDataset *)malloc(sizeof(ImageDataset));
     Image *images = (Image *)malloc(num_samples * sizeof(Image));
@@ -155,7 +150,8 @@ Tensor *run_conv2d_forward_test(
     uint32_t show_sample_index
 ) {
     printf("--> Perform conv2d...\n");
-    Tensor *output = run_conv2d_forward(X_d, filters, num_samples, in_height, in_width);
+    Tensor *output = initialize_tensor();
+    run_conv2d_forward(output, X_d, filters, num_samples, in_height, in_width);
     
     printf("Output description:\n");
     printf("# Dim: %u [", output->num_dim);
@@ -180,7 +176,75 @@ Tensor *run_conv2d_forward_test(
             printf("\n");
         }
     }
+    printf("\n");
     return output;
+}
+
+
+Tensor *generate_test_rectangle_tensor(uint32_t height, uint32_t width) {
+    Tensor *tensor = (Tensor *)malloc(sizeof(Tensor));
+    tensor->num_dim = 2;
+    uint32_t *dim = (uint32_t *)malloc(2 * sizeof(uint32_t));
+    dim[0] = height;
+    dim[1] = width;
+    tensor->dim = dim;
+    
+    float counter = 0.0f;
+    float *values = (float *)malloc(height * width * sizeof(float));
+    for (uint32_t row = 0; row < height; ++row) {
+        for (uint32_t col = 0; col < width; ++col) {
+            uint32_t index = row * width + col;
+            values[index] = counter++;
+            printf("%3.0f", values[index]);
+        }
+        printf("\n");
+    }
+    printf("\n");
+    
+    float *values_d;
+    cudaMalloc((void**)&values_d, height * width * sizeof(float));
+    cudaMemcpy(values_d, values, height * width * sizeof(float), cudaMemcpyHostToDevice);
+    tensor->values_d = values_d;
+
+    free(values);
+    return tensor;
+}
+
+
+void run_linear_layer_test() {
+    printf("--> Perform linear layer test...\n");
+
+    uint32_t feature1_height = 4;
+    uint32_t feature1_width  = 5;
+    uint32_t feature2_width  = 7;
+
+    // Prepare feature 1.
+    printf("Generating X:\n");
+    Tensor *X = generate_test_rectangle_tensor(feature1_height, feature1_width);
+    printf("Generating A:\n");
+    Tensor *A = generate_test_rectangle_tensor(feature2_width, feature1_width);
+
+    // Recall that the output will be stored in feature1.
+    run_linear_layer(X, A);
+
+    uint32_t out_height = feature1_height;
+    uint32_t out_width  = feature2_width;
+    float *values = (float *)malloc(out_height * out_width * sizeof(float));
+    cudaMemcpy(values, X->values_d, out_height * out_width * sizeof(float), cudaMemcpyDeviceToHost);
+
+    printf("Output: \n");
+    for (uint32_t row = 0; row < out_height; ++row) {
+        for (uint32_t col = 0; col < out_width; ++col) {
+            printf("%8.0f", values[row * out_width + col]);
+        }
+        printf("\n");
+    }
+    printf("\n");
+
+    free(values);
+
+    free_tensor(X);
+    free_tensor(A);
 }
 
 
@@ -202,9 +266,10 @@ int main() {
     uint32_t show_sample_index = 0;
     Tensor *conv2d_weight = generate_custom_weights(in_channels, num_kernels, kernel_length);
     Tensor *conv2d_output = run_conv2d_forward_test(X_d, conv2d_weight, num_samples, image_height, image_width, show_sample_index);
-
     free_tensor(conv2d_output);
     free_tensor(conv2d_weight);
     cudaFree(X_d);
     free_image_dataset(dataset);
+
+    run_linear_layer_test();
 }
