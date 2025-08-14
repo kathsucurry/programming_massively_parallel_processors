@@ -171,7 +171,51 @@ void run_sigmoid_forward(Tensor *tensor) {
         feature_height, feature_width
     );
 
-    Tensor *output = (Tensor *)malloc(sizeof(Tensor));
+    // Update tensor.
+    cudaFree(tensor->values_d);
+    tensor->values_d = Y_d;
+}
+
+
+// Assume stride is always the kernel size.
+void run_pooling_forward(Tensor *tensor, uint32_t kernel_length, pooling_type pool_type) {
+    uint32_t num_samples    = tensor->dim[0];
+    uint32_t num_channels   = tensor->dim[1];
+    uint32_t feature_height = tensor->dim[2];
+    uint32_t feature_width  = tensor->dim[3];
+    uint32_t out_height     = feature_height / kernel_length;
+    uint32_t out_width      = feature_width / kernel_length;
+    uint32_t out_size       = num_samples * num_channels * out_height * out_width;
+
+    float *Y_d;
+    cudaMalloc((void**)&Y_d, out_size * sizeof(float));
+
+    uint32_t grid_height = ceil(out_height * 1.0 / TILE_WIDTH);
+    uint32_t grid_width = ceil(out_width * 1.0 / TILE_WIDTH);
+    uint32_t out_tiles_num = grid_width * grid_height;
+
+    dim3 dimBlock(TILE_WIDTH, TILE_WIDTH);
+    dim3 dimGrid(num_channels, out_tiles_num, num_samples);
+
+    if (pool_type != MEAN && pool_type != MAX) {
+        printf("The inputted pooling type is currently not implemented.");
+        free_tensor(tensor);
+        cudaFree(Y_d);
+        return;
+    }
+
+    PoolForwardKernel<<<dimGrid, dimBlock>>>(
+        tensor->values_d, Y_d,
+        pool_type,
+        kernel_length,
+        grid_height, grid_width,
+        feature_height, feature_width,
+        out_height, out_width
+    );
+
+    // Update tensor.
+    tensor->dim[2] = out_height;
+    tensor->dim[3] = out_width;
     cudaFree(tensor->values_d);
     tensor->values_d = Y_d;
 }
