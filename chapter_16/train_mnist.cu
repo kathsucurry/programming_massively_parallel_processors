@@ -48,23 +48,32 @@ Tensor *forward_pass(
     uint32_t pool_kernel_length = 2;
     pooling_type pool_type = MEAN;
     run_pooling_forward(output, pool_kernel_length, pool_type);
+    run_flatten_layer(output);
 
-    uint32_t sample_size = get_tensor_values_size(output->num_dim, output->dim) / output->dim[0];
+    printf("Output has %u dimensions: ", output->num_dim);
 
-    uint32_t show_sample_index = 5;
-    float *values = (float *)malloc(sample_size * sizeof(float));
-    cudaMemcpy(values, &output->values_d[show_sample_index*sample_size], sample_size * sizeof(float), cudaMemcpyDeviceToHost);
+    for (uint8_t i = 0; i < output->num_dim; ++i)
+        printf("%u ", output->dim[i]);
+    printf("\n");
+    uint32_t weight_size = get_tensor_values_size(output->num_dim, output->dim);
+    printf("Weight size: %u\n", weight_size);
 
-    uint32_t feature_map_size = output->dim[2] * output->dim[3];
+    // uint32_t sample_size = get_tensor_values_size(output->num_dim, output->dim) / output->dim[0];
 
-    uint32_t feature_index = 15;
-    printf("Feature map %u:\n", feature_index);
-    for (uint32_t row = 0; row < output->dim[2]; ++row) {
-        for (uint32_t col = 0; col < output->dim[3]; ++col) {
-            printf("%8.3f", values[feature_index * feature_map_size + row * output->dim[3] + col]);
-        }
-        printf("\n");
-    }
+    // uint32_t show_sample_index = 5;
+    // float *values = (float *)malloc(sample_size * sizeof(float));
+    // cudaMemcpy(values, &output->values_d[show_sample_index*sample_size], sample_size * sizeof(float), cudaMemcpyDeviceToHost);
+
+    // uint32_t feature_map_size = output->dim[2] * output->dim[3];
+
+    // uint32_t feature_index = 15;
+    // printf("Feature map %u:\n", feature_index);
+    // for (uint32_t row = 0; row < output->dim[2]; ++row) {
+    //     for (uint32_t col = 0; col < output->dim[3]; ++col) {
+    //         printf("%8.3f", values[feature_index * feature_map_size + row * output->dim[3] + col]);
+    //     }
+    //     printf("\n");
+    // }
 
     // for (uint32_t feature_index = 0; feature_index < output->dim[1]; ++feature_index) {
     //     printf("Feature map %u:\n", feature_index);

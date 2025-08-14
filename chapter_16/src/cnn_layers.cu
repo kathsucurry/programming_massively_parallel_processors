@@ -219,3 +219,17 @@ void run_pooling_forward(Tensor *tensor, uint32_t kernel_length, pooling_type po
     cudaFree(tensor->values_d);
     tensor->values_d = Y_d;
 }
+
+
+void run_flatten_layer(Tensor *tensor) {
+    // Make sure to keep the sample dimension.
+    uint32_t num_samples = tensor->dim[0];
+    uint32_t size = get_tensor_values_size(tensor->num_dim, tensor->dim) / num_samples;
+    tensor->num_dim = 2;
+    free(tensor->dim);
+
+    uint32_t *dim = (uint32_t *)malloc(tensor->num_dim * sizeof(uint32_t));
+    dim[0] = num_samples;
+    dim[1] = size;
+    tensor->dim = dim;
+}

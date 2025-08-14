@@ -41,5 +41,7 @@ void run_sigmoid_forward(Tensor *tensor);
 
 void run_pooling_forward(Tensor *tensor, uint32_t kernel_length, pooling_type pool_type);
 
+void run_flatten_layer(Tensor *tensor);
+
 
 #endif
