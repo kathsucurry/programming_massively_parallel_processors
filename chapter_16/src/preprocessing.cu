@@ -55,7 +55,7 @@ ImageDataset *add_padding(ImageDataset *dataset, uint8_t num_padding) {
         float *new_pixels = (float *)calloc(new_height * new_width, new_height * new_width * sizeof(float));
         for (uint32_t row = 0; row < image->height; ++row)
             for (uint32_t col = 0; col < image->width; ++col)
-                new_pixels[(row + num_padding) * image->width + (col + num_padding)] = image->pixels[row * image->width + col];
+                new_pixels[(row + num_padding) * new_width + (col + num_padding)] = image->pixels[row * image->width + col];
         
         free(image->pixels);
         image->pixels = new_pixels;

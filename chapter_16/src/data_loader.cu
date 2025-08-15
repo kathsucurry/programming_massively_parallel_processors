@@ -193,9 +193,11 @@ ImageDataset *split_dataset(ImageDataset *dataset, uint32_t begin_index, uint32_
 
 void prepare_batch(float X[], uint8_t y[], ImageDataset *dataset, uint32_t num_samples_in_batch) {
     uint32_t image_size = dataset->images[0].height * dataset->images[0].width;
+    memset(y, 0, num_samples_in_batch * LABEL_SIZE * sizeof(uint8_t));
     for (uint32_t i = 0; i < num_samples_in_batch; ++i) {
         uint32_t index = dataset->view_indices[i];
         memcpy(&X[i * image_size], dataset->images[index].pixels, image_size * sizeof(float));
-        y[i] = dataset->labels[dataset->view_indices[i]];
+        uint8_t label = dataset->labels[index];
+        y[i * LABEL_SIZE + label] = 1;
     }
 }

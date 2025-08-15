@@ -60,11 +60,18 @@ Tensor *forward_pass(
     // Linear layer.
     run_linear_forward(output, network_weights_d->linear_weight);
 
-    // Softmax layer.
+    // Log softmax layer.
     run_log_softmax_forward(output);
 
     return output;
 }
+
+
+Tensor *compute_loss(Tensor *output, uint8_t y[]) {
+    
+}
+
+
 
 void backward_pass() {}
 
@@ -99,13 +106,13 @@ NetworkWeights *train_model(ImageDataset *dataset, uint32_t batch_size) {
     uint32_t image_size = image_height * image_width;
     
     float train_X[BATCH_SIZE * image_size];
-    uint8_t train_y[BATCH_SIZE];
+    uint8_t train_y[BATCH_SIZE * LABEL_SIZE];
 
     float *train_X_d;
     uint8_t *train_y_d;
 
     cudaMalloc((void**)&train_X_d, BATCH_SIZE * image_size * sizeof(float));
-    cudaMalloc((void**)&train_y_d, BATCH_SIZE * sizeof(uint8_t));
+    cudaMalloc((void**)&train_y_d, BATCH_SIZE * LABEL_SIZE * sizeof(uint8_t));
 
     // For each epoch, run forward pass, evaluate on validation (i.e., forward pass + assess), backward pass.
     for (uint32_t epoch_index = 0; epoch_index < num_epochs; ++epoch_index) {
@@ -173,5 +180,5 @@ int main() {
 
     // Run evaluation on the test set.
 
-    // free(model_weights);
+    free(model_weights);
 }
