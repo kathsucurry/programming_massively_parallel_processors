@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include "kernel_functions.cuh"
+#include "common.h"
 
 
 /**
@@ -201,4 +202,25 @@ __global__ void LogNormalizeForwardKernel(float *X, float *sum, uint32_t num_sam
         return;
     
     X[row * num_features + col] = logf(X[row * num_features + col] / sum[row] + eps);
+}
+
+
+__global__ void NegativeLogLikelihoodKernel(float *X, uint8_t *y, float *out, uint32_t num_samples) {
+    uint32_t col_offset = blockDim.x * blockIdx.x * THREAD_COARSENING_FACTOR + threadIdx.x;
+    uint32_t row        = blockDim.y * blockIdx.y + threadIdx.y;
+
+    if (row >= num_samples)
+        return;
+
+    float sum_value = 0;
+    
+    for (uint8_t c = 0; c < THREAD_COARSENING_FACTOR; ++c) {
+        uint32_t col   = col_offset + c;
+        if (col >= LABEL_SIZE)
+            break;
+
+        sum_value += (-1 * X[row * LABEL_SIZE + col] * y[col]) / num_samples;
+    }
+
+    atomicAdd(out, sum_value);
 }

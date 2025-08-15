@@ -42,7 +42,7 @@ void run_flatten_layer(Tensor *tensor);
 void run_linear_forward(Tensor *tensor, Tensor *linear_weights);
 void run_log_softmax_forward(Tensor *tensor);
 
-void compute_negative_log_likelihood_lost(Tensor *tensor);
+Tensor *compute_negative_log_likelihood_lost(Tensor *tensor, uint8_t *y_d);
 
 
 #endif

@@ -67,12 +67,6 @@ Tensor *forward_pass(
 }
 
 
-Tensor *compute_loss(Tensor *output, uint8_t y[]) {
-    
-}
-
-
-
 void backward_pass() {}
 
 NetworkWeights *train_model(ImageDataset *dataset, uint32_t batch_size) {
@@ -128,10 +122,9 @@ NetworkWeights *train_model(ImageDataset *dataset, uint32_t batch_size) {
             cudaMemcpy(train_X_d, train_X, num_samples_in_batch * image_size * sizeof(float), cudaMemcpyHostToDevice);
             cudaMemcpy(train_y_d, train_y, num_samples_in_batch * sizeof(uint8_t), cudaMemcpyHostToDevice);
 
-            Tensor *train_logits = forward_pass(train_X_d, network_weights, image_height, image_width, num_samples_in_batch);
-            // float train_loss = 
-            // break;
-            // Calculate loss.
+            Tensor *forward_logits = forward_pass(train_X_d, network_weights, image_height, image_width, num_samples_in_batch);
+            Tensor *loss = compute_negative_log_likelihood_lost(forward_logits, train_y_d);
+            break;
             // Backward propagation.
             
         }

@@ -298,3 +298,25 @@ void run_log_softmax_forward(Tensor *tensor) {
     cudaFree(tensor->values_d);
     tensor->values_d = X_output_d;
 }
+
+
+Tensor *compute_negative_log_likelihood_lost(Tensor *tensor, uint8_t *y_d) {
+    uint32_t num_samples = tensor->dim[0];
+
+    float *out;
+    cudaMalloc((void**)&out, sizeof(float));
+    cudaMemset(out, 0, sizeof(float));
+
+    dim3 dimBlock(TILE_WIDTH, TILE_WIDTH);
+    dim3 dimGrid(ceil(LABEL_SIZE * 1.0 / (TILE_WIDTH * THREAD_COARSENING_FACTOR)), ceil(num_samples * 1.0 / TILE_WIDTH));
+    NegativeLogLikelihoodKernel<<<dimGrid, dimBlock>>>(tensor->values_d, y_d, out, num_samples);
+
+    Tensor *output = (Tensor *)malloc(sizeof(Tensor));
+    output->num_dim = 1;
+    uint32_t *dim = (uint32_t *)malloc(sizeof(uint32_t));
+    dim[0] = 1;
+    output->dim = dim;
+    output->values_d = out;
+    
+    return output;
+}

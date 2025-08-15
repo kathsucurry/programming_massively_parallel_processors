@@ -141,17 +141,25 @@ float *generate_X_device(ImageDataset *dataset) {
 }
 
 
-Tensor *run_conv2d_forward_test(
-    float *X_d,
-    Tensor *filters,
-    uint32_t num_samples,
-    uint32_t in_height,
-    uint32_t in_width,
-    uint32_t show_sample_index
-) {
-    printf("--> Perform conv2d...\n");
+void run_conv2d_forward_test() {
+    printf("--> Perform conv2d test...\n");
+
+    // Create a small ImageDataset; each image is only 5 x 5.
+    uint32_t num_samples = 3;
+    uint32_t image_height = 5;
+    uint32_t image_width = 5;
+    ImageDataset *dataset = generate_tiny_dataset(num_samples, image_height, image_width);
+    float *X_d = generate_X_device(dataset);
+
+    // Generate custom weights.
+    uint32_t kernel_length = 3;
+    uint32_t num_kernels = 3;
+    uint32_t in_channels = 1;
+    uint32_t show_sample_index = 0;
+    Tensor *conv2d_weight = generate_custom_weights(in_channels, num_kernels, kernel_length);
+
     Tensor *output = initialize_tensor();
-    run_conv2d_forward(output, X_d, filters, num_samples, in_height, in_width);
+    run_conv2d_forward(output, X_d, conv2d_weight, num_samples, image_height, image_width);
     
     printf("Output description:\n");
     printf("# Dim: %u [", output->num_dim);
@@ -177,7 +185,11 @@ Tensor *run_conv2d_forward_test(
         }
     }
     printf("\n");
-    return output;
+
+    free_tensor(output);
+    free_tensor(conv2d_weight);
+    cudaFree(X_d);
+    free_image_dataset(dataset);
 }
 
 
@@ -195,7 +207,7 @@ Tensor *generate_test_rectangle_tensor(uint32_t height, uint32_t width, float mu
         for (uint32_t col = 0; col < width; ++col) {
             uint32_t index = row * width + col;
             values[index] = multiplier * counter++;
-            printf("%6.3f", values[index]);
+            printf("%8.3f", values[index]);
         }
         printf("\n");
     }
@@ -269,34 +281,73 @@ void run_log_softmax_forward_test() {
     }
     printf("\n");
 
+    printf("# Dim: %u [", X->num_dim);
+    for (uint8_t i = 0; i < X->num_dim; ++i)
+        printf("%3u", X->dim[i]);
+    printf("]\n\n");
+    
     free(values);
     free_tensor(X);
+}
+
+
+void run_negative_log_likelihood_loss_test() {
+    printf("--> Perform nll loss test...\n");
+    
+    // Build the log softmax input.
+    uint32_t num_samples  = 5;
+    uint32_t num_labels = 10;
+    Tensor *X = generate_test_rectangle_tensor(num_samples, num_labels, 0.01);
+
+    run_log_softmax_forward(X);
+
+    float *values = (float *)malloc(num_samples * num_labels * sizeof(float));
+    cudaMemcpy(values, X->values_d, num_samples * num_labels * sizeof(float), cudaMemcpyDeviceToHost);
+
+    printf("Input (log softmax): \n");
+    for (uint32_t row = 0; row < num_samples; ++row) {
+        for (uint32_t col = 0; col < num_labels; ++col) {
+            printf("%8.3f", values[row * num_labels + col]);
+        }
+        printf("\n");
+    }
+    printf("\n");
+    free(values);
+    
+    uint8_t *y = (uint8_t *)calloc(num_samples * num_labels, sizeof(uint8_t));
+    for (uint32_t i = 0; i < num_samples; ++i)
+        y[i * num_labels + i] = 1;
+    printf("Input (labels):\n");
+    for (uint32_t i = 0; i < num_samples; ++i) {
+        for (uint8_t label = 0; label < num_labels; ++label)
+            printf("%2u", y[i * num_labels + label]);
+        printf("\n");
+    }
+    printf("\n");
+
+    uint8_t *y_d;
+    cudaMalloc((void**)&y_d, num_samples * num_labels * sizeof(uint8_t));
+    cudaMemcpy(y_d, y, num_samples * num_labels * sizeof(uint8_t), cudaMemcpyHostToDevice);
+    Tensor *loss = compute_negative_log_likelihood_lost(X, y_d);
+    free_tensor(X);
+    free(y);
+    cudaFree(y_d);
+
+    float *loss_h = (float *)malloc(sizeof(float));
+    cudaMemcpy(loss_h, loss->values_d, sizeof(float), cudaMemcpyDeviceToHost);
+    printf("Output: %.3f\n\n", *loss_h);
+    free(loss_h);
 }
 
 
 int main() {
     print_conv2d_weight_init_example(1, 3, 3);
     
-    // Create a small ImageDataset; each image is only 5 x 5.
-    uint32_t num_samples = 3;
-    uint32_t image_height = 5;
-    uint32_t image_width = 5;
-    ImageDataset *dataset = generate_tiny_dataset(num_samples, image_height, image_width);
-    float *X_d = generate_X_device(dataset);
-
-    // Generate custom weights.
-    uint32_t kernel_length = 3;
-    uint32_t num_kernels = 3;
-    uint32_t in_channels = 1;
-    uint32_t show_sample_index = 0;
-    Tensor *conv2d_weight = generate_custom_weights(in_channels, num_kernels, kernel_length);
-    Tensor *conv2d_output = run_conv2d_forward_test(X_d, conv2d_weight, num_samples, image_height, image_width, show_sample_index);
-    free_tensor(conv2d_output);
-    free_tensor(conv2d_weight);
-    cudaFree(X_d);
-    free_image_dataset(dataset);
+    run_conv2d_forward_test();
 
     run_linear_layer_test();
 
     run_log_softmax_forward_test();
+
+    run_negative_log_likelihood_loss_test();
 }
