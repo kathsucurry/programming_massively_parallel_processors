@@ -6,6 +6,7 @@
 
 #define TILE_WIDTH 2
 #define THREAD_COARSENING_FACTOR 3
+#define eps 1e-6
 
 enum pooling_type { MAX, MEAN };
 
@@ -45,5 +46,12 @@ __global__ void LinearForwardKernel(
     uint32_t in_features, uint32_t out_features
 );
 
+
+__global__ void CalcExpAndSumByRowKernel(
+    float *X, float *exp_X, float *sum_exp_X, uint32_t num_samples, uint32_t num_features
+);
+
+
+__global__ void LogNormalizeForwardKernel(float *X, float *sum, uint32_t num_samples, uint32_t num_features);
 
 #endif

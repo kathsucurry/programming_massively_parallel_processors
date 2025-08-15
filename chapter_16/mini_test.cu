@@ -181,7 +181,7 @@ Tensor *run_conv2d_forward_test(
 }
 
 
-Tensor *generate_test_rectangle_tensor(uint32_t height, uint32_t width) {
+Tensor *generate_test_rectangle_tensor(uint32_t height, uint32_t width, float multiplier) {
     Tensor *tensor = (Tensor *)malloc(sizeof(Tensor));
     tensor->num_dim = 2;
     uint32_t *dim = (uint32_t *)malloc(2 * sizeof(uint32_t));
@@ -194,8 +194,8 @@ Tensor *generate_test_rectangle_tensor(uint32_t height, uint32_t width) {
     for (uint32_t row = 0; row < height; ++row) {
         for (uint32_t col = 0; col < width; ++col) {
             uint32_t index = row * width + col;
-            values[index] = counter++;
-            printf("%3.0f", values[index]);
+            values[index] = multiplier * counter++;
+            printf("%6.3f", values[index]);
         }
         printf("\n");
     }
@@ -220,12 +220,12 @@ void run_linear_layer_test() {
 
     // Prepare feature 1.
     printf("Generating X:\n");
-    Tensor *X = generate_test_rectangle_tensor(feature1_height, feature1_width);
+    Tensor *X = generate_test_rectangle_tensor(feature1_height, feature1_width, 1);
     printf("Generating A:\n");
-    Tensor *A = generate_test_rectangle_tensor(feature2_width, feature1_width);
+    Tensor *A = generate_test_rectangle_tensor(feature2_width, feature1_width, 1);
 
     // Recall that the output will be stored in feature1.
-    run_linear_layer(X, A);
+    run_linear_forward(X, A);
 
     uint32_t out_height = feature1_height;
     uint32_t out_width  = feature2_width;
@@ -247,6 +247,31 @@ void run_linear_layer_test() {
     free_tensor(A);
 }
 
+
+void run_log_softmax_forward_test() {
+    printf("--> Perform softmax layer test...\n");
+    printf("Input:\n");
+    uint32_t num_samples  = 5;
+    uint32_t num_features = 10;
+    Tensor *X = generate_test_rectangle_tensor(num_samples, num_features, 0.01);
+
+    run_log_softmax_forward(X);
+
+    float *values = (float *)malloc(num_samples * num_features * sizeof(float));
+    cudaMemcpy(values, X->values_d, num_samples * num_features * sizeof(float), cudaMemcpyDeviceToHost);
+
+    printf("Output: \n");
+    for (uint32_t row = 0; row < num_samples; ++row) {
+        for (uint32_t col = 0; col < num_features; ++col) {
+            printf("%8.3f", values[row * num_features + col]);
+        }
+        printf("\n");
+    }
+    printf("\n");
+
+    free(values);
+    free_tensor(X);
+}
 
 
 int main() {
@@ -272,4 +297,6 @@ int main() {
     free_image_dataset(dataset);
 
     run_linear_layer_test();
+
+    run_log_softmax_forward_test();
 }

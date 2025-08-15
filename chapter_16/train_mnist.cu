@@ -35,7 +35,7 @@ void eval_model() {
  * 
  */
 Tensor *forward_pass(
-    float *X_d, uint8_t *y_d,
+    float *X_d,
     NetworkWeights *network_weights_d,
     uint32_t image_height,
     uint32_t image_width,
@@ -58,43 +58,10 @@ Tensor *forward_pass(
     run_flatten_layer(output);
 
     // Linear layer.
-    run_linear_layer(output, network_weights_d->linear_weight);
+    run_linear_forward(output, network_weights_d->linear_weight);
 
-
-    printf("Output has %u dimensions: ", output->num_dim);
-
-    for (uint8_t i = 0; i < output->num_dim; ++i)
-        printf("%u ", output->dim[i]);
-    printf("\n");
-    uint32_t weight_size = get_tensor_values_size(output->num_dim, output->dim);
-    printf("Weight size: %u\n", weight_size);
-
-    uint32_t sample_size = get_tensor_values_size(output->num_dim, output->dim) / output->dim[0];
-
-    uint32_t show_sample_index = 5;
-    float *values = (float *)malloc(sample_size * sizeof(float));
-    cudaMemcpy(values, &output->values_d[show_sample_index*sample_size], sample_size * sizeof(float), cudaMemcpyDeviceToHost);
-
-    uint32_t feature_map_size = output->dim[2] * output->dim[3];
-
-    uint32_t feature_index = 15;
-    printf("Feature map %u:\n", feature_index);
-    for (uint32_t row = 0; row < output->dim[2]; ++row) {
-        for (uint32_t col = 0; col < output->dim[3]; ++col) {
-            printf("%8.3f", values[feature_index * feature_map_size + row * output->dim[3] + col]);
-        }
-        printf("\n");
-    }
-
-    // for (uint32_t feature_index = 0; feature_index < output->dim[1]; ++feature_index) {
-    //     printf("Feature map %u:\n", feature_index);
-    //     for (uint32_t row = 0; row < output->dim[2]; ++row) {
-    //         for (uint32_t col = 0; col < output->dim[3]; ++col) {
-    //             printf("%8.3f", values[feature_index * feature_map_size + row * output->dim[3] + col]);
-    //         }
-    //         printf("\n");
-    //     }
-    // }
+    // Softmax layer.
+    run_log_softmax_forward(output);
 
     return output;
 }
@@ -154,8 +121,9 @@ NetworkWeights *train_model(ImageDataset *dataset, uint32_t batch_size) {
             cudaMemcpy(train_X_d, train_X, num_samples_in_batch * image_size * sizeof(float), cudaMemcpyHostToDevice);
             cudaMemcpy(train_y_d, train_y, num_samples_in_batch * sizeof(uint8_t), cudaMemcpyHostToDevice);
 
-            Tensor *train_logits = forward_pass(train_X_d, train_y_d, network_weights, image_height, image_width, num_samples_in_batch);
-            break;
+            Tensor *train_logits = forward_pass(train_X_d, network_weights, image_height, image_width, num_samples_in_batch);
+            // float train_loss = 
+            // break;
             // Calculate loss.
             // Backward propagation.
             

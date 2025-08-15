@@ -18,6 +18,13 @@ Tensor *initialize_tensor() {
 }
 
 
+void free_tensor(Tensor *tensor) {
+    cudaFree(tensor->values_d);
+    free(tensor->dim);
+    free(tensor);
+}
+
+
 float *_uniform_xavier_initialization(uint32_t fan_in, uint32_t fan_out, uint32_t size, uint32_t seed) {
     // Assume gain = 1.
     srand(seed);
@@ -87,13 +94,6 @@ uint32_t get_tensor_values_size(const uint8_t num_dim, const uint32_t *dim) {
     for (uint8_t i = 0; i < num_dim; ++i)
         size *= dim[i];
     return size;
-}
-
-
-void free_tensor(Tensor *tensor) {
-    cudaFree(tensor->values_d);
-    free(tensor->dim);
-    free(tensor);
 }
 
 
@@ -234,7 +234,7 @@ void run_flatten_layer(Tensor *tensor) {
 }
 
 
-void run_linear_layer(Tensor *X, Tensor *linear_weights) {
+void run_linear_forward(Tensor *X, Tensor *linear_weights) {
     uint32_t in_features  = linear_weights->dim[1];
     uint32_t out_features = linear_weights->dim[0];
     uint32_t num_samples  = X->dim[0];
@@ -257,4 +257,44 @@ void run_linear_layer(Tensor *X, Tensor *linear_weights) {
     X->dim[1] = out_features;
     cudaFree(X->values_d);
     X->values_d = Y_d;
+}
+
+
+/**
+ * Perform softmax function on a 2D tensor across column.
+ * TODO: enable performing the softmax on n-dimensional tensor given the input axis.
+ * 
+ */
+void run_log_softmax_forward(Tensor *tensor) {
+    if (tensor->num_dim != 2) {
+        printf("The input tensor must have 2 dimensions to perform softmax function.\n");
+        free_tensor(tensor);
+        tensor = NULL;
+        return;
+    }
+
+    uint32_t num_samples  = tensor->dim[0];
+    uint32_t num_features = tensor->dim[1];
+    uint32_t out_size     = num_samples * num_features;
+
+    float *X_output_d, *X_exp_sum_d;
+    cudaMalloc((void**)&X_output_d, out_size * sizeof(float));
+    cudaMalloc((void**)&X_exp_sum_d, num_samples * sizeof(float));
+    cudaMemset(X_exp_sum_d, 0, num_samples * sizeof(float));
+
+    // TODO: consider the cases where the total size is significantly lower
+    // than TILE_WIDTH * TILE_WIDTH;
+    dim3 dimBlock(TILE_WIDTH, TILE_WIDTH);
+    dim3 dimGrid(ceil(num_features * 1.0 / TILE_WIDTH), ceil(num_samples * 1.0 / TILE_WIDTH));
+    CalcExpAndSumByRowKernel<<<dimGrid, dimBlock>>>(
+        tensor->values_d, X_output_d, X_exp_sum_d, num_samples, num_features
+    );
+
+    LogNormalizeForwardKernel<<<dimGrid, dimBlock>>>(X_output_d, X_exp_sum_d, num_samples, num_features);
+
+    cudaFree(X_exp_sum_d);
+    
+    // Update tensor.
+    cudaFree(tensor->values_d);
+    tensor->values_d = X_output_d;
 }

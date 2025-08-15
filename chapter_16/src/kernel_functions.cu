@@ -178,3 +178,27 @@ __global__ void LinearForwardKernel(
             Y[row * out_features + col] = out_values[c];
     }
 }
+
+
+__global__ void CalcExpAndSumByRowKernel(
+    float *X, float *exp_X, float *sum_exp_X, uint32_t num_samples, uint32_t num_features
+) {
+    uint32_t col = blockDim.x * blockIdx.x + threadIdx.x;
+    uint32_t row = blockDim.y * blockIdx.y + threadIdx.y;
+    if (col >= num_features || row >= num_samples)
+        return;
+    
+    float value = expf(X[row * num_features + col]);
+    atomicAdd(&sum_exp_X[row], value);
+    exp_X[row * num_features + col] = value;
+}
+
+
+__global__ void LogNormalizeForwardKernel(float *X, float *sum, uint32_t num_samples, uint32_t num_features) {
+    uint32_t col = blockDim.x * blockIdx.x + threadIdx.x;
+    uint32_t row = blockDim.y * blockIdx.y + threadIdx.y;
+    if (col >= num_features || row >= num_samples)
+        return;
+    
+    X[row * num_features + col] = logf(X[row * num_features + col] / sum[row] + eps);
+}
