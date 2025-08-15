@@ -94,7 +94,7 @@ void runMatrixMultiplication(
 
     // Invoke kernel.
     dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE);
-    dim3 dimGrid(ceil(Width * 1.0 / BLOCK_SIZE), ceil(Width * 1.0 / BLOCK_SIZE));
+    dim3 dimGrid(ceil(Width * 1.0 / BLOCK_SIZE / COARSE_FACTOR), ceil(Width * 1.0 / BLOCK_SIZE));
     MatrixMultiplicationKernel<<<dimGrid, dimBlock>>>(matrix_M_d, matrix_N_d, matrix_Out_d, Width);
 
     // Copy the output matrix from the device memory.
