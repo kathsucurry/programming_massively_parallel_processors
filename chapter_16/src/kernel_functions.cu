@@ -54,6 +54,7 @@ __global__ void Conv2ForwardKernel(
 
 __global__ void SigmoidForwardKernel(
     float *X, float *Y,
+    float *grad,
     uint32_t grid_height, uint32_t grid_width,
     uint32_t out_height, uint32_t out_width
 ) {
@@ -72,7 +73,9 @@ __global__ void SigmoidForwardKernel(
                 (out_channel_idx * out_height * out_width) +
                 (row * out_width) +
                 col;
-            Y[index] = 1.0 / (1 + expf(-1 * X[index]));
+            float value = 1.0 / (1 + expf(-1 * X[index]));
+            Y[index] = value;
+            grad[index] = value * (1 - value);
         }
 }
 
@@ -86,6 +89,7 @@ __global__ void SigmoidForwardKernel(
 __global__ void PoolForwardKernel(
     float *X, float *Y,
     pooling_type pool_type,
+    float *grad,
     uint32_t kernel_length,
     uint32_t grid_height, uint32_t grid_width,
     uint32_t in_height, uint32_t in_width,
@@ -101,6 +105,7 @@ __global__ void PoolForwardKernel(
         return;
     
     float value = 0.0f;
+    uint32_t max_idx = 0;
     for (uint32_t k_row = 0; k_row < kernel_length; ++k_row)
         for (uint32_t k_col = 0; k_col < kernel_length; ++k_col) {
             uint32_t in_row = kernel_length * out_height_idx + k_row;
@@ -112,11 +117,18 @@ __global__ void PoolForwardKernel(
                 in_col;
             
             if (pool_type == MAX) {
-                value = max(value, X[X_idx]);
+                if (X[X_idx] > value) {
+                    max_idx = X_idx;
+                    value = X[X_idx];
+                }
             } else {
                 value += (X[X_idx] / (kernel_length * kernel_length));
+                grad[X_idx] = 1.0 / (kernel_length * kernel_length);
             }
         }
+    
+    if (pool_type == MAX)
+        grad[max_idx] = 1.0;
 
     uint32_t Y_idx = (sample_idx * num_channels * out_height * out_width) + 
             (num_channel_idx * out_height * out_width) +
@@ -195,17 +207,17 @@ __global__ void CalcExpAndSumByRowKernel(
 }
 
 
-__global__ void LogNormalizeForwardKernel(float *X, float *sum, uint32_t num_samples, uint32_t num_features) {
+__global__ void NormalizeKernel(float *X, float *sum, uint32_t num_samples, uint32_t num_features) {
     uint32_t col = blockDim.x * blockIdx.x + threadIdx.x;
     uint32_t row = blockDim.y * blockIdx.y + threadIdx.y;
     if (col >= num_features || row >= num_samples)
         return;
     
-    X[row * num_features + col] = logf(X[row * num_features + col] / sum[row] + eps);
+    X[row * num_features + col] /= sum[row];
 }
 
 
-__global__ void NegativeLogLikelihoodKernel(float *X, uint8_t *y, float *out, uint32_t num_samples) {
+__global__ void NegativeLogLikelihoodLogKernel(const float *X, const uint8_t *y, float *out, uint32_t num_samples, uint32_t num_features) {
     uint32_t col_offset = blockDim.x * blockIdx.x * THREAD_COARSENING_FACTOR + threadIdx.x;
     uint32_t row        = blockDim.y * blockIdx.y + threadIdx.y;
 
@@ -215,12 +227,22 @@ __global__ void NegativeLogLikelihoodKernel(float *X, uint8_t *y, float *out, ui
     float sum_value = 0;
     
     for (uint8_t c = 0; c < THREAD_COARSENING_FACTOR; ++c) {
-        uint32_t col   = col_offset + c;
-        if (col >= LABEL_SIZE)
+        uint32_t col = col_offset + c * TILE_WIDTH;
+        if (col >= num_features)
             break;
 
-        sum_value += (-1 * X[row * LABEL_SIZE + col] * y[col]) / num_samples;
+        sum_value += (-1 * logf(X[row * num_features + col] + eps) * y[row * num_features + col]) / num_samples;
     }
 
     atomicAdd(out, sum_value);
+}
+
+
+__global__ void SoftmaxGradientKernel(float *dX_d, const float *output, const uint8_t *y, uint32_t num_samples, uint32_t num_features) {
+    uint32_t col = blockDim.x * blockIdx.x + threadIdx.x;
+    uint32_t row = blockDim.y * blockIdx.y + threadIdx.y;
+    if (col >= num_features || row >= num_samples)
+        return;
+
+    dX_d[row * num_features + col] = output[row * num_features + col] - y[row * num_features + col];
 }

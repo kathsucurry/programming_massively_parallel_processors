@@ -9,19 +9,59 @@
 #include "common.h"
 
 
-Tensor *initialize_tensor() {
+uint32_t get_tensor_values_size(const uint8_t num_dim, const uint32_t *dim) {
+    uint32_t size = 1;
+    for (uint8_t i = 0; i < num_dim; ++i)
+        size *= dim[i];
+    return size;
+}
+
+
+Tensor *initialize_tensor(float *X, uint8_t num_dim, uint32_t *dim) {
     Tensor *tensor = (Tensor *)malloc(sizeof(Tensor));
-    tensor->num_dim = 0;
-    tensor->dim = NULL;
-    tensor->values_d = NULL;
+    tensor->num_dim = num_dim;
+    tensor->dim = dim;
+
+    uint32_t size = get_tensor_values_size(num_dim, dim);
+    float *values_d;
+    cudaMalloc((void**)&values_d, size * sizeof(float));
+    cudaMemcpy(values_d, X, size * sizeof(float), cudaMemcpyHostToDevice);
+
+    tensor->values_d = values_d;
     return tensor;
 }
 
 
+Tensor *deep_copy_tensor(Tensor *tensor) {
+    Tensor *new_tensor = (Tensor *)malloc(sizeof(Tensor));
+    new_tensor->num_dim = tensor->num_dim;
+
+    new_tensor->dim = (uint32_t *)malloc(new_tensor->num_dim * sizeof(uint32_t));
+    memcpy(new_tensor->dim, tensor->dim, new_tensor->num_dim * sizeof(uint32_t));
+
+    uint32_t out_size = get_tensor_values_size(new_tensor->num_dim, new_tensor->dim);
+    float *new_tensor_values_d;
+    cudaMalloc((void**)&new_tensor_values_d, out_size * sizeof(float));
+    cudaMemcpy(new_tensor_values_d, tensor->values_d, out_size * sizeof(float), cudaMemcpyDeviceToDevice);
+
+    new_tensor->values_d = new_tensor_values_d;
+    return new_tensor;
+}
+
+
 void free_tensor(Tensor *tensor) {
+    if (tensor == NULL)
+        return;
     cudaFree(tensor->values_d);
     free(tensor->dim);
     free(tensor);
+}
+
+
+void free_layer_gradients(LayerGradients *gradients) {
+    free_tensor(gradients->dW_or_W);
+    free_tensor(gradients->dX_or_X);
+    free(gradients);
 }
 
 
@@ -46,12 +86,11 @@ Tensor *initialize_conv_layer_weights(
     Tensor *conv_weight = (Tensor *)malloc(sizeof(Tensor));
     // Dimensions = out_channels * in_channels * filter_length * filter_length.
     conv_weight->num_dim = 4;
-    uint32_t *dim = (uint32_t *)malloc(conv_weight->num_dim * sizeof(uint32_t));
-    dim[0] = out_channels;
-    dim[1] = in_channels;
-    dim[2] = filter_length;
-    dim[3] = filter_length;
-    conv_weight->dim = dim;
+    conv_weight->dim = (uint32_t *)malloc(conv_weight->num_dim * sizeof(uint32_t));
+    conv_weight->dim[0] = out_channels;
+    conv_weight->dim[1] = in_channels;
+    conv_weight->dim[2] = filter_length;
+    conv_weight->dim[3] = filter_length;
 
     uint32_t weight_size = out_channels * in_channels * filter_length * filter_length;
     uint32_t fan_in = in_channels * filter_length * filter_length;
@@ -63,7 +102,7 @@ Tensor *initialize_conv_layer_weights(
     cudaMemcpy(filters_d, filters, weight_size * sizeof(float), cudaMemcpyHostToDevice);
     conv_weight->values_d = filters_d;
     free(filters);
-    
+
     return conv_weight;
 }
 
@@ -72,10 +111,9 @@ Tensor *initialize_linear_layer_weights(uint32_t in_features, uint32_t out_featu
     Tensor *linear_weight = (Tensor *)malloc(sizeof(Tensor));
     linear_weight->num_dim = 2;
 
-    uint32_t *dim = (uint32_t *)malloc(linear_weight->num_dim * sizeof(uint32_t));
-    dim[0] = out_features;
-    dim[1] = in_features;
-    linear_weight->dim = dim;
+    linear_weight->dim = (uint32_t *)malloc(linear_weight->num_dim * sizeof(uint32_t));
+    linear_weight->dim[0] = out_features;
+    linear_weight->dim[1] = in_features;
     uint32_t weight_size = out_features * in_features;
 
     float *weights = _uniform_xavier_initialization(in_features, out_features, weight_size, seed);
@@ -89,24 +127,16 @@ Tensor *initialize_linear_layer_weights(uint32_t in_features, uint32_t out_featu
 }
 
 
-uint32_t get_tensor_values_size(const uint8_t num_dim, const uint32_t *dim) {
-    uint32_t size = 1;
-    for (uint8_t i = 0; i < num_dim; ++i)
-        size *= dim[i];
-    return size;
-}
-
-
 /**
  * Conv2 kernel implementation, following the tiled method in chapter 16.3
  */
 void run_conv2d_forward(
     Tensor *output,
-    float *X_d,
     Tensor *filters,
     uint32_t num_samples,
     uint32_t in_height,
-    uint32_t in_width
+    uint32_t in_width,
+    LayerGradients *grad
 ) {
     uint32_t filter_length = filters->dim[filters->num_dim - 2];
     uint32_t out_height    = in_height - filter_length + 1;
@@ -114,6 +144,11 @@ void run_conv2d_forward(
     uint32_t out_channels  = filters->dim[0];
     uint32_t in_channels   = filters->dim[1];
     uint32_t out_size      = num_samples * out_channels * out_height * out_width;
+
+    // Store tensors for backprop later.    
+    grad->dW_or_W = deep_copy_tensor(filters);
+    grad->dX_or_X = deep_copy_tensor(output);
+    grad->is_grad = false;
 
     float *Y_d;
     cudaMalloc((void**)&Y_d, out_size * sizeof(float));
@@ -125,7 +160,7 @@ void run_conv2d_forward(
     dim3 dimBlock(TILE_WIDTH, TILE_WIDTH, 1);
     dim3 dimGrid(out_channels, out_tiles_num, num_samples);
     Conv2ForwardKernel<<<dimGrid, dimBlock>>>(
-        X_d, Y_d,
+        output->values_d, Y_d,
         filters->values_d,
         filter_length,
         in_channels,
@@ -134,20 +169,19 @@ void run_conv2d_forward(
         out_height, out_width
     );
 
+    // Update output tensor.
     output->num_dim = 4;
-
-    uint32_t *dim = (uint32_t *)malloc(output->num_dim * sizeof(uint32_t));
-    dim[0] = num_samples;
-    dim[1] = out_channels;
-    dim[2] = out_height;
-    dim[3] = out_width;
-
-    output->dim = dim;
+    free(output->dim);
+    output->dim = (uint32_t *)malloc(output->num_dim * sizeof(uint32_t));
+    output->dim[0] = num_samples;
+    output->dim[1] = out_channels;
+    output->dim[2] = out_height;
+    output->dim[3] = out_width;
     output->values_d = Y_d;
 }
 
 
-void run_sigmoid_forward(Tensor *tensor) {
+void run_sigmoid_forward(Tensor *tensor, LayerGradients *grad) {
     uint32_t num_samples    = tensor->dim[0];
     uint32_t num_channels   = tensor->dim[1];
     uint32_t feature_height = tensor->dim[2];
@@ -156,6 +190,16 @@ void run_sigmoid_forward(Tensor *tensor) {
 
     float *Y_d;
     cudaMalloc((void**)&Y_d, out_size * sizeof(float));
+
+    // Prepare gradients.
+    float *grad_values_d;
+    cudaMalloc((void**)&grad_values_d, out_size * sizeof(float));
+    cudaMemset(grad_values_d, 0, out_size * sizeof(float));
+    
+    Tensor *dX = (Tensor *)malloc(sizeof(Tensor));
+    dX->num_dim = tensor->num_dim;
+    dX->dim = (uint32_t *)malloc(dX->num_dim * sizeof(uint32_t));
+    memcpy(dX->dim, tensor->dim, dX->num_dim * sizeof(uint32_t));
 
     uint32_t grid_height = ceil(feature_height * 1.0 / TILE_WIDTH);
     uint32_t grid_width = ceil(feature_width * 1.0 / TILE_WIDTH);
@@ -166,9 +210,15 @@ void run_sigmoid_forward(Tensor *tensor) {
 
     SigmoidForwardKernel<<<dimGrid, dimBlock>>>(
         tensor->values_d, Y_d,
+        grad_values_d,
         grid_height, grid_width,
         feature_height, feature_width
     );
+
+    dX->values_d = grad_values_d;
+    grad->dW_or_W = NULL;
+    grad->dX_or_X = dX;
+    grad->is_grad = true;
 
     // Update tensor.
     cudaFree(tensor->values_d);
@@ -177,13 +227,14 @@ void run_sigmoid_forward(Tensor *tensor) {
 
 
 // Assume stride is always the kernel size.
-void run_pooling_forward(Tensor *tensor, uint32_t kernel_length, pooling_type pool_type) {
+void run_pooling_forward(Tensor *tensor, uint32_t kernel_length, pooling_type pool_type, LayerGradients *grad) {
     uint32_t num_samples    = tensor->dim[0];
     uint32_t num_channels   = tensor->dim[1];
     uint32_t feature_height = tensor->dim[2];
     uint32_t feature_width  = tensor->dim[3];
     uint32_t out_height     = feature_height / kernel_length;
     uint32_t out_width      = feature_width / kernel_length;
+    uint32_t in_size        = num_samples * num_channels * feature_height * feature_width;
     uint32_t out_size       = num_samples * num_channels * out_height * out_width;
 
     float *Y_d;
@@ -203,14 +254,31 @@ void run_pooling_forward(Tensor *tensor, uint32_t kernel_length, pooling_type po
         return;
     }
 
+    // Store gradients.
+    float *grad_values_d;
+    cudaMalloc((void**)&grad_values_d, in_size * sizeof(float));
+    cudaMemset(grad_values_d, 0, in_size * sizeof(float));
+    
+    Tensor *dX = (Tensor *)malloc(sizeof(Tensor));
+    dX->num_dim = tensor->num_dim;
+    dX->dim = (uint32_t *)malloc(dX->num_dim * sizeof(uint32_t));
+    memcpy(dX->dim, tensor->dim, dX->num_dim * sizeof(uint32_t));
+
     PoolForwardKernel<<<dimGrid, dimBlock>>>(
         tensor->values_d, Y_d,
         pool_type,
+        grad_values_d,
         kernel_length,
         grid_height, grid_width,
         feature_height, feature_width,
         out_height, out_width
     );
+    
+    dX->values_d = grad_values_d;
+
+    grad->dW_or_W = NULL;
+    grad->dX_or_X = dX;
+    grad->is_grad = true;
 
     // Update tensor.
     tensor->dim[2] = out_height;
@@ -227,19 +295,45 @@ void run_flatten_layer(Tensor *tensor) {
     tensor->num_dim = 2;
     free(tensor->dim);
 
-    uint32_t *dim = (uint32_t *)malloc(tensor->num_dim * sizeof(uint32_t));
-    dim[0] = num_samples;
-    dim[1] = size;
-    tensor->dim = dim;
+    tensor->dim = (uint32_t *)malloc(tensor->num_dim * sizeof(uint32_t));
+    tensor->dim[0] = num_samples;
+    tensor->dim[1] = size;
 }
 
 
-void run_linear_forward(Tensor *X, Tensor *linear_weights) {
+void run_linear_forward(Tensor *X, Tensor *linear_weights, LayerGradients *grad) {
     uint32_t in_features  = linear_weights->dim[1];
     uint32_t out_features = linear_weights->dim[0];
     uint32_t num_samples  = X->dim[0];
     uint32_t out_size     = num_samples * out_features;
 
+    // Store gradients.
+    Tensor *dW = (Tensor *)malloc(sizeof(Tensor));
+    Tensor *dX = (Tensor *)malloc(sizeof(Tensor));
+    
+    float *dW_values, *dX_values;
+    cudaMalloc((void**)&dW_values, num_samples * in_features * sizeof(float));
+    cudaMemcpy(dW_values, X->values_d, num_samples * in_features * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMalloc((void**)&dX_values, out_features * in_features * sizeof(float));
+    cudaMemcpy(dX_values, linear_weights->values_d, out_features * in_features * sizeof(float), cudaMemcpyHostToDevice);
+
+    dW->dim = (uint32_t *)malloc(2 * sizeof(uint32_t));
+    dW->dim[0] = num_samples;
+    dW->dim[1] = in_features;
+    dW->num_dim = 2;
+    dW->values_d = dW_values;
+
+    dX->dim = (uint32_t *)malloc(2 * sizeof(uint32_t));
+    dX->dim[0] = out_features;
+    dX->dim[1] = in_features;
+    dX->num_dim = 2;
+    dX->values_d = dX_values;
+
+    grad->dW_or_W = dW;
+    grad->dX_or_X = dX;
+    grad->is_grad = true;
+
+    // Run linear layer.
     float *Y_d;
     cudaMalloc((void**)&Y_d, out_size * sizeof(float));
 
@@ -265,7 +359,7 @@ void run_linear_forward(Tensor *X, Tensor *linear_weights) {
  * TODO: enable performing the softmax on n-dimensional tensor given the input axis.
  * 
  */
-void run_log_softmax_forward(Tensor *tensor) {
+void run_softmax_forward(Tensor *tensor, uint8_t *y_d, LayerGradients *grad) {
     if (tensor->num_dim != 2) {
         printf("The input tensor must have 2 dimensions to perform softmax function.\n");
         free_tensor(tensor);
@@ -290,18 +384,36 @@ void run_log_softmax_forward(Tensor *tensor) {
         tensor->values_d, X_output_d, X_exp_sum_d, num_samples, num_features
     );
 
-    LogNormalizeForwardKernel<<<dimGrid, dimBlock>>>(X_output_d, X_exp_sum_d, num_samples, num_features);
+    NormalizeKernel<<<dimGrid, dimBlock>>>(X_output_d, X_exp_sum_d, num_samples, num_features);
 
     cudaFree(X_exp_sum_d);
     
     // Update tensor.
     cudaFree(tensor->values_d);
     tensor->values_d = X_output_d;
+
+    // Compute gradients assuming cross entropy loss.
+    float *dX_d;
+    cudaMalloc((void**)&dX_d, out_size * sizeof(float));
+    cudaMemset(dX_d, 0, out_size * sizeof(float));
+    SoftmaxGradientKernel<<<dimGrid, dimBlock>>>(dX_d, X_output_d, y_d, num_samples, num_features);
+
+    Tensor *dX = (Tensor *)malloc(sizeof(Tensor));
+    dX->num_dim = 2;
+    dX->dim = (uint32_t *)malloc(2 * sizeof(uint32_t));
+    dX->dim[0] = tensor->dim[0];
+    dX->dim[1] = tensor->dim[1];
+    dX->values_d = dX_d;
+
+    grad->dW_or_W = NULL;
+    grad->dX_or_X = dX;
+    grad->is_grad = false;
 }
 
 
-Tensor *compute_negative_log_likelihood_lost(Tensor *tensor, uint8_t *y_d) {
-    uint32_t num_samples = tensor->dim[0];
+Tensor *compute_negative_log_likelihood_log_lost(Tensor *tensor, uint8_t *y_d) {
+    uint32_t num_samples  = tensor->dim[0];
+    uint32_t num_features = tensor->dim[1];
 
     float *out;
     cudaMalloc((void**)&out, sizeof(float));
@@ -309,13 +421,12 @@ Tensor *compute_negative_log_likelihood_lost(Tensor *tensor, uint8_t *y_d) {
 
     dim3 dimBlock(TILE_WIDTH, TILE_WIDTH);
     dim3 dimGrid(ceil(LABEL_SIZE * 1.0 / (TILE_WIDTH * THREAD_COARSENING_FACTOR)), ceil(num_samples * 1.0 / TILE_WIDTH));
-    NegativeLogLikelihoodKernel<<<dimGrid, dimBlock>>>(tensor->values_d, y_d, out, num_samples);
+    NegativeLogLikelihoodLogKernel<<<dimGrid, dimBlock>>>(tensor->values_d, y_d, out, num_samples, num_features);
 
     Tensor *output = (Tensor *)malloc(sizeof(Tensor));
     output->num_dim = 1;
-    uint32_t *dim = (uint32_t *)malloc(sizeof(uint32_t));
-    dim[0] = 1;
-    output->dim = dim;
+    output->dim = (uint32_t *)malloc(sizeof(uint32_t));
+    output->dim[0] = 1;
     output->values_d = out;
     
     return output;

@@ -17,6 +17,10 @@
 #include "src/cnn_layers.cuh"
 
 
+// Assume fixed LR for now.
+#define LEARNING_RATE 0.005
+
+
 void eval_model() {
 
 }
@@ -34,40 +38,51 @@ void eval_model() {
  * - Softmax layer
  * 
  */
-Tensor *forward_pass(
-    float *X_d,
+NetworkOutputs *forward_pass(
+    float *X_d, uint8_t *y_d,
     NetworkWeights *network_weights_d,
     uint32_t image_height,
     uint32_t image_width,
     uint32_t num_samples
 ) {
-    Tensor *output = initialize_tensor();
+    uint8_t num_layers_with_grads = 5;
+    LayerGradients *gradients = (LayerGradients *)malloc(num_layers_with_grads * sizeof(LayerGradients));
     
-    // 2D convolution layer.
-    run_conv2d_forward(output, X_d, network_weights_d->conv2d_weight, num_samples, image_height, image_width);
+    uint32_t *image_dim = (uint32_t *)malloc(3 * sizeof(uint32_t));
+    Tensor *output = initialize_tensor(X_d, 3, image_dim);
     
-    // Sigmoid activation.
-    run_sigmoid_forward(output);
+    // Layer 0: 2D convolution layer.
+    run_conv2d_forward(output, network_weights_d->conv2d_weight, num_samples, image_height, image_width, &gradients[0]);
+    
+    // Layer 1: Sigmoid activation.
+    run_sigmoid_forward(output, &gradients[1]);
 
-    // Max pooling layer.
+    // Layer 2: Max pooling layer.
     uint32_t pool_kernel_length = 2;
     pooling_type pool_type = MAX;
-    run_pooling_forward(output, pool_kernel_length, pool_type);
+    run_pooling_forward(output, pool_kernel_length, pool_type, &gradients[2]);
     
-    // Convert into 1D vector.
+    // Layer 3: Convert into 1D vector; no grads.
     run_flatten_layer(output);
 
-    // Linear layer.
-    run_linear_forward(output, network_weights_d->linear_weight);
+    // Layer 4: Linear layer.
+    run_linear_forward(output, network_weights_d->linear_weight, &gradients[3]);
 
-    // Log softmax layer.
-    run_log_softmax_forward(output);
+    // Layer 5: Softmax layer.
+    run_softmax_forward(output, y_d, &gradients[4]);
 
-    return output;
+    NetworkOutputs *network_outputs = (NetworkOutputs *)malloc(sizeof(NetworkOutputs));
+    network_outputs->gradients = gradients;
+    network_outputs->output = output;
+
+    return network_outputs;
 }
 
 
-void backward_pass() {}
+void backward_pass(NetworkOutputs *network_outputs, NetworkWeights *network_weights) {
+    // Update linear weights.
+    // Update conv2d weights.
+}
 
 NetworkWeights *train_model(ImageDataset *dataset, uint32_t batch_size) {
     // uint32_t num_samples = dataset->num_samples;
@@ -122,10 +137,9 @@ NetworkWeights *train_model(ImageDataset *dataset, uint32_t batch_size) {
             cudaMemcpy(train_X_d, train_X, num_samples_in_batch * image_size * sizeof(float), cudaMemcpyHostToDevice);
             cudaMemcpy(train_y_d, train_y, num_samples_in_batch * sizeof(uint8_t), cudaMemcpyHostToDevice);
 
-            Tensor *forward_logits = forward_pass(train_X_d, network_weights, image_height, image_width, num_samples_in_batch);
-            Tensor *loss = compute_negative_log_likelihood_lost(forward_logits, train_y_d);
-            break;
-            // Backward propagation.
+            NetworkOutputs *network_outputs = forward_pass(train_X_d, train_y_d, network_weights, image_height, image_width, num_samples_in_batch);
+            Tensor *loss = compute_negative_log_likelihood_log_lost(network_outputs->output, train_y_d);
+            backward_pass(network_outputs, network_weights);
             
         }
         break;
