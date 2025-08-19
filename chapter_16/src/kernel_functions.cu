@@ -138,9 +138,34 @@ __global__ void PoolForwardKernel(
 }
 
 
-/**
- * Given X and A, perform matrix multiplication (X, A.T).
- */
+__global__ void PoolBackwardKernel(
+    float *grad, float *next_layer_grad,
+    uint32_t kernel_length,
+    uint32_t grid_height, uint32_t grid_width,
+    uint32_t grad_height, uint32_t grad_width,
+    uint32_t next_layer_grad_height, uint32_t next_layer_grad_width
+) {
+    uint32_t num_channel_idx = blockIdx.x;
+    uint32_t grad_height_idx = (blockIdx.y / grid_width)*TILE_WIDTH + threadIdx.y;
+    uint32_t grad_width_idx  = (blockIdx.y % grid_width)*TILE_WIDTH + threadIdx.x;
+    uint32_t sample_idx      = blockIdx.z;
+    uint32_t num_channels = gridDim.x;
+
+    if (grad_height_idx >= grad_height || grad_width_idx >= grad_width)
+        return;
+    
+    uint32_t index = (sample_idx * num_channels * grad_height * grad_width) + 
+            (num_channel_idx * grad_height * grad_width) +
+            (grad_height_idx * grad_width) +
+            grad_width_idx;
+    uint32_t next_layer_grad_index = (sample_idx * num_channels * next_layer_grad_height * next_layer_grad_width) + 
+            (num_channel_idx * next_layer_grad_height * next_layer_grad_width) +
+            (grad_height_idx / kernel_length * next_layer_grad_width) +
+            grad_width_idx / kernel_length;
+    grad[index] *= next_layer_grad[next_layer_grad_index];
+}
+
+
 __global__ void LinearForwardKernel(
     float *X, float *A, float *Y,
     uint32_t num_samples,
@@ -190,6 +215,80 @@ __global__ void LinearForwardKernel(
         if (row < num_samples && col < out_features)
             Y[row * out_features + col] = out_values[c];
     }
+}
+
+
+__global__ void MatMulKernel(   
+    float *X, float *A,
+    float *Y,
+    uint32_t X_height, uint32_t X_width, uint32_t A_width
+) {
+    __shared__ float  shared_X[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float  shared_A[TILE_WIDTH][TILE_WIDTH];
+
+    // Identify the row and column of the output element.
+    uint32_t row = blockIdx.y * TILE_WIDTH + threadIdx.y;
+    uint32_t col_offset = blockIdx.x * TILE_WIDTH * THREAD_COARSENING_FACTOR + threadIdx.x;
+
+    // Initialize values.
+    float out_values[THREAD_COARSENING_FACTOR];
+    for (uint8_t c = 0; c < THREAD_COARSENING_FACTOR; ++c)
+        out_values[c] = 0.0f;
+    
+    // Loop over tiles.
+    for (uint32_t phase = 0; phase < ceil(X_width * 1.0 / TILE_WIDTH); ++phase) {
+        uint32_t X_index = row * X_width + phase * TILE_WIDTH + threadIdx.x;
+
+        // Collaboratively load the features1 tile into shared memory.
+        if (row < X_height && phase * TILE_WIDTH + threadIdx.x < X_width)
+            shared_X[threadIdx.y][threadIdx.x] = X[X_index];
+        else
+            shared_X[threadIdx.y][threadIdx.x] = 0.0f;
+    
+        for (uint8_t c = 0; c < THREAD_COARSENING_FACTOR; ++c) {
+            uint32_t col = col_offset + c * TILE_WIDTH;
+            uint32_t A_index = (phase * TILE_WIDTH + threadIdx.y) * A_width + col;
+
+            // Collaboratively load the features2 tile into shared memory.
+            if (phase * TILE_WIDTH + threadIdx.y < X_width && col < A_width)
+                shared_A[threadIdx.y][threadIdx.x] = A[A_index];
+            else
+                shared_A[threadIdx.y][threadIdx.x] = 0.0f;
+            __syncthreads();
+
+            for (uint32_t i = 0; i < TILE_WIDTH; ++i)
+                out_values[c] += shared_X[threadIdx.y][i] * shared_A[i][threadIdx.x];
+            __syncthreads();
+        }
+    }
+
+    for (uint8_t c = 0; c < THREAD_COARSENING_FACTOR; ++c) {
+        uint32_t col = col_offset + c * TILE_WIDTH;
+        if (row < X_height && col < A_width)
+            Y[row * A_width + col] = out_values[c];
+    }
+}
+
+
+__global__ void TransposeMatrixKernel(float *X, float *Y, uint32_t Y_height, uint32_t Y_width) {
+    uint32_t col = blockIdx.x * blockDim.x + threadIdx.x;
+    uint32_t row = blockIdx.y * blockDim.y + threadIdx.y;
+   
+    if (col >= Y_width || row >= Y_height)
+        return;
+
+    Y[row * Y_width + col] = X[col * Y_height + row];
+}
+
+
+__global__ void UpdateParameterKernel(float *W, float *dW, uint32_t height, uint32_t width, float lr) {
+    uint32_t col = blockIdx.x * blockDim.x + threadIdx.x;
+    uint32_t row = blockIdx.y * blockDim.y + threadIdx.y;
+    
+    if (col >= width || row >= height)
+        return;
+
+    W[row * width + col] -= lr * dW[row * width + col];
 }
 
 

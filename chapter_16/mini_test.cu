@@ -14,6 +14,165 @@
 #include "src/cnn_layers.cuh"
 
 
+void print_tensor_2d(Tensor *tensor) {
+    uint32_t out_size = get_tensor_values_size(tensor->num_dim, tensor->dim);
+    float *values = (float *)malloc(out_size * sizeof(float));
+    cudaMemcpy(values, tensor->values_d, out_size * sizeof(float), cudaMemcpyDeviceToHost);
+    uint32_t *dim = tensor->dim;
+
+    for (uint32_t row = 0; row < dim[0]; ++row) {
+        for (uint32_t col = 0; col < dim[1]; ++col)
+            printf("%10.2f", values[row * dim[1] + col]);
+        printf("\n");
+    }
+
+    free(values);
+}
+
+
+void print_tensor_4d(Tensor *tensor) {
+    uint32_t out_size = get_tensor_values_size(tensor->num_dim, tensor->dim);
+    float *values = (float *)malloc(out_size * sizeof(float));
+    cudaMemcpy(values, tensor->values_d, out_size * sizeof(float), cudaMemcpyDeviceToHost);
+    uint32_t *dim = tensor->dim;
+
+    for (uint32_t sample_index = 0; sample_index < dim[0]; ++sample_index) {
+        printf("Sample index %u\n", sample_index);
+        for (uint32_t channel_index = 0; channel_index < dim[1]; ++channel_index) {
+            printf("Channel index %u\n", channel_index);
+            for (uint32_t row = 0; row < dim[2]; ++row) {
+                for (uint32_t col = 0; col < dim[3]; ++col)
+                    printf("%6.2f", values[sample_index * out_size / dim[0] + channel_index * dim[2] * dim[3] + row * dim[3] + col]);
+                printf("\n");
+            }
+            printf("\n");
+        }
+        printf("\n");
+    }
+
+    free(values);
+}
+
+
+Tensor *generate_test_ordered_tensor_2d(uint32_t height, uint32_t width, float multiplier) {
+    Tensor *tensor = (Tensor *)malloc(sizeof(Tensor));
+    tensor->num_dim = 2;
+    uint32_t *dim = (uint32_t *)malloc(2 * sizeof(uint32_t));
+    dim[0] = height;
+    dim[1] = width;
+    tensor->dim = dim;
+    
+    float counter = 0.0f;
+    float *values = (float *)malloc(height * width * sizeof(float));
+    for (uint32_t row = 0; row < height; ++row) {
+        for (uint32_t col = 0; col < width; ++col) {
+            uint32_t index = row * width + col;
+            values[index] = multiplier * counter++;
+            printf("%8.3f", values[index]);
+        }
+        printf("\n");
+    }
+    printf("\n");
+    
+    float *values_d;
+    cudaMalloc((void**)&values_d, height * width * sizeof(float));
+    cudaMemcpy(values_d, values, height * width * sizeof(float), cudaMemcpyHostToDevice);
+    tensor->values_d = values_d;
+
+    free(values);
+    return tensor;
+}
+
+
+Tensor *generate_test_random_4d_tensor(uint32_t *dim, float multiplier, int seed) {
+    srand(seed);
+
+    Tensor *tensor = (Tensor *)malloc(sizeof(Tensor));
+    tensor->num_dim = 4;
+    
+    uint32_t *tensor_dim = (uint32_t *)malloc(4 * sizeof(uint32_t));
+    memcpy(tensor_dim, dim, 4 * sizeof(uint32_t));
+    tensor->dim = tensor_dim;
+    
+    uint32_t out_size = get_tensor_values_size(4, dim);
+    float *values = (float *)malloc(out_size * sizeof(float));
+    for (uint32_t i = 0; i < out_size; ++i)
+        values[i] = multiplier * (rand() % 50);
+    
+    float *values_d;
+    cudaMalloc((void**)&values_d, out_size * sizeof(float));
+    cudaMemcpy(values_d, values, out_size * sizeof(float), cudaMemcpyHostToDevice);
+    tensor->values_d = values_d;
+    free(values);
+    return tensor;
+}
+
+
+void test_transpose_matrix() {
+    printf("--> Test transpose matrix...\n");
+    uint32_t input_height = 9;
+    uint32_t input_width  = 7;
+    printf("Input:\n");
+    Tensor *input = generate_test_ordered_tensor_2d(input_height, input_width, 1);
+
+    float *output_d;
+    cudaMalloc((void**)&output_d, input_height * input_width * sizeof(float));
+    cudaMemset(output_d, 0, input_height * input_width * sizeof(float));
+
+    dim3 dimBlock(TILE_WIDTH, TILE_WIDTH);
+    dim3 dimGrid(ceil(input_height * 1.0 / TILE_WIDTH), ceil(input_width * 1.0 / TILE_WIDTH));
+    TransposeMatrixKernel<<<dimGrid, dimBlock>>>(input->values_d, output_d, input_width, input_height);
+
+    Tensor *output = (Tensor *)malloc(sizeof(Tensor));
+    output->num_dim = 2;
+    output->dim = (uint32_t *)malloc(2 * sizeof(uint32_t));
+    output->dim[0] = input_width;
+    output->dim[1] = input_height;
+    output->values_d = output_d;
+
+    printf("Output:\n");
+    print_tensor_2d(output);
+    printf("\n");
+
+    free_tensor(input);
+    free_tensor(output);
+}
+
+
+void test_matmul() {
+    printf("--> Test matrix multiplication...\n");
+    uint32_t input1_height = 9;
+    uint32_t input1_width  = 7;
+    uint32_t input2_width = 5;
+    printf("Input 1:\n");
+    Tensor *input1 = generate_test_ordered_tensor_2d(input1_height, input1_width, 1);
+
+    printf("Input 2:\n");
+    Tensor *input2 = generate_test_ordered_tensor_2d(input1_width, input2_width, 1);
+
+    float *output_d;
+    cudaMalloc((void**)&output_d, input1_height * input2_width * sizeof(float));
+    dim3 dimBlock(TILE_WIDTH, TILE_WIDTH);
+    dim3 dimGrid(ceil(input2_width * 1.0 / TILE_WIDTH / THREAD_COARSENING_FACTOR), ceil(input1_height * 1.0 / TILE_WIDTH));
+    MatMulKernel<<<dimGrid, dimBlock>>>(input1->values_d, input2->values_d, output_d, input1_height, input1_width, input2_width);
+
+    Tensor *output = (Tensor *)malloc(sizeof(Tensor));
+    output->num_dim = 2;
+    output->dim = (uint32_t *)malloc(2 * sizeof(uint32_t));
+    output->dim[0] = input1_height;
+    output->dim[1] = input2_width;
+    output->values_d = output_d;
+
+    printf("Output:\n");
+    print_tensor_2d(output);
+    printf("\n");
+
+    free_tensor(input1);
+    free_tensor(input2);
+    free_tensor(output);
+}
+
+
 void print_conv2d_weight_init_example(uint32_t in_channels, uint32_t out_channels, uint8_t filter_size) {
     printf("--> Assess the conv layer weight initialization...");
     
@@ -158,8 +317,13 @@ void run_conv2d_forward_test() {
     uint32_t show_sample_index = 0;
     Tensor *conv2d_weight = generate_custom_weights(in_channels, num_kernels, kernel_length);
 
-    Tensor *output = initialize_tensor();
-    run_conv2d_forward(output, X_d, conv2d_weight, num_samples, image_height, image_width);
+    uint32_t *image_dim = (uint32_t *)malloc(3 * sizeof(uint32_t));
+    image_dim[0] = num_samples;
+    image_dim[1] = image_height;
+    image_dim[2] = image_width;
+    Tensor *output = initialize_tensor(X_d, 3, image_dim);
+    LayerGradients *grad = (LayerGradients *)malloc(sizeof(LayerGradients));
+    run_conv2d_forward(output, conv2d_weight, num_samples, image_height, image_width, grad);
     
     printf("Output description:\n");
     printf("# Dim: %u [", output->num_dim);
@@ -190,84 +354,6 @@ void run_conv2d_forward_test() {
     free_tensor(conv2d_weight);
     cudaFree(X_d);
     free_image_dataset(dataset);
-}
-
-
-Tensor *generate_test_ordered_rectangle_tensor(uint32_t height, uint32_t width, float multiplier) {
-    Tensor *tensor = (Tensor *)malloc(sizeof(Tensor));
-    tensor->num_dim = 2;
-    uint32_t *dim = (uint32_t *)malloc(2 * sizeof(uint32_t));
-    dim[0] = height;
-    dim[1] = width;
-    tensor->dim = dim;
-    
-    float counter = 0.0f;
-    float *values = (float *)malloc(height * width * sizeof(float));
-    for (uint32_t row = 0; row < height; ++row) {
-        for (uint32_t col = 0; col < width; ++col) {
-            uint32_t index = row * width + col;
-            values[index] = multiplier * counter++;
-            printf("%8.3f", values[index]);
-        }
-        printf("\n");
-    }
-    printf("\n");
-    
-    float *values_d;
-    cudaMalloc((void**)&values_d, height * width * sizeof(float));
-    cudaMemcpy(values_d, values, height * width * sizeof(float), cudaMemcpyHostToDevice);
-    tensor->values_d = values_d;
-
-    free(values);
-    return tensor;
-}
-
-
-void print_tensor_4d(Tensor *tensor) {
-    uint32_t out_size = get_tensor_values_size(tensor->num_dim, tensor->dim);
-    float *values = (float *)malloc(out_size * sizeof(float));
-    cudaMemcpy(values, tensor->values_d, out_size * sizeof(float), cudaMemcpyDeviceToHost);
-    uint32_t *dim = tensor->dim;
-
-    for (uint32_t sample_index = 0; sample_index < dim[0]; ++sample_index) {
-        printf("Sample index %u\n", sample_index);
-        for (uint32_t channel_index = 0; channel_index < dim[1]; ++channel_index) {
-            printf("Channel index %u\n", channel_index);
-            for (uint32_t row = 0; row < dim[2]; ++row) {
-                for (uint32_t col = 0; col < dim[3]; ++col)
-                    printf("%6.2f", values[sample_index * out_size / dim[0] + channel_index * dim[2] * dim[3] + row * dim[3] + col]);
-                printf("\n");
-            }
-            printf("\n");
-        }
-        printf("\n");
-    }
-
-    free(values);
-}
-
-
-Tensor *generate_test_random_4d_tensor(uint32_t *dim, float multiplier, int seed) {
-    srand(seed);
-
-    Tensor *tensor = (Tensor *)malloc(sizeof(Tensor));
-    tensor->num_dim = 4;
-    
-    uint32_t *tensor_dim = (uint32_t *)malloc(4 * sizeof(uint32_t));
-    memcpy(tensor_dim, dim, 4 * sizeof(uint32_t));
-    tensor->dim = tensor_dim;
-    
-    uint32_t out_size = get_tensor_values_size(4, dim);
-    float *values = (float *)malloc(out_size * sizeof(float));
-    for (uint32_t i = 0; i < out_size; ++i)
-        values[i] = multiplier * (rand() % 50);
-    
-    float *values_d;
-    cudaMalloc((void**)&values_d, out_size * sizeof(float));
-    cudaMemcpy(values_d, values, out_size * sizeof(float), cudaMemcpyHostToDevice);
-    tensor->values_d = values_d;
-    free(values);
-    return tensor;
 }
 
 
@@ -348,9 +434,9 @@ void run_linear_layer_test() {
 
     // Prepare feature 1.
     printf("Generating X:\n");
-    Tensor *X = generate_test_ordered_rectangle_tensor(feature1_height, feature1_width, 1);
+    Tensor *X = generate_test_ordered_tensor_2d(feature1_height, feature1_width, 1);
     printf("Generating A:\n");
-    Tensor *A = generate_test_ordered_rectangle_tensor(feature2_width, feature1_width, 1);
+    Tensor *A = generate_test_ordered_tensor_2d(feature2_width, feature1_width, 1);
 
     // Recall that the output will be stored in feature1.
     LayerGradients *gradients = (LayerGradients *)malloc(sizeof(LayerGradients));
@@ -406,7 +492,7 @@ void run_softmax_and_negative_log_likelihood_loss_test() {
     // Build X.
     uint32_t num_samples  = 5;
     uint32_t num_labels = 10;
-    Tensor *X = generate_test_ordered_rectangle_tensor(num_samples, num_labels, 0.01);
+    Tensor *X = generate_test_ordered_tensor_2d(num_samples, num_labels, 0.01);
 
     // Build y.
     uint8_t *y = (uint8_t *)calloc(num_samples * num_labels, sizeof(uint8_t));
@@ -470,6 +556,10 @@ void run_softmax_and_negative_log_likelihood_loss_test() {
 
 
 int main() {
+    test_transpose_matrix();
+
+    test_matmul();
+
     print_conv2d_weight_init_example(1, 3, 3);
     
     run_conv2d_forward_test();

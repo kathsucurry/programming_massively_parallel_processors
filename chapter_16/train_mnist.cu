@@ -19,6 +19,7 @@
 
 // Assume fixed LR for now.
 #define LEARNING_RATE 0.005
+#define POOL_KERNEL_LENGTH 2
 
 
 void eval_model() {
@@ -45,10 +46,13 @@ NetworkOutputs *forward_pass(
     uint32_t image_width,
     uint32_t num_samples
 ) {
-    uint8_t num_layers_with_grads = 5;
+    uint8_t num_layers_with_grads = 6;
     LayerGradients *gradients = (LayerGradients *)malloc(num_layers_with_grads * sizeof(LayerGradients));
     
     uint32_t *image_dim = (uint32_t *)malloc(3 * sizeof(uint32_t));
+    image_dim[0] = num_samples;
+    image_dim[1] = image_height;
+    image_dim[2] = image_width;
     Tensor *output = initialize_tensor(X_d, 3, image_dim);
     
     // Layer 0: 2D convolution layer.
@@ -58,18 +62,18 @@ NetworkOutputs *forward_pass(
     run_sigmoid_forward(output, &gradients[1]);
 
     // Layer 2: Max pooling layer.
-    uint32_t pool_kernel_length = 2;
+    uint32_t pool_kernel_length = POOL_KERNEL_LENGTH;
     pooling_type pool_type = MAX;
     run_pooling_forward(output, pool_kernel_length, pool_type, &gradients[2]);
     
-    // Layer 3: Convert into 1D vector; no grads.
-    run_flatten_layer(output);
+    // Layer 3: Convert into 1D vector; no grads created.
+    run_flatten_forward(output);
 
     // Layer 4: Linear layer.
-    run_linear_forward(output, network_weights_d->linear_weight, &gradients[3]);
+    run_linear_forward(output, network_weights_d->linear_weight, &gradients[4]);
 
     // Layer 5: Softmax layer.
-    run_softmax_forward(output, y_d, &gradients[4]);
+    run_softmax_forward(output, y_d, &gradients[5]);
 
     NetworkOutputs *network_outputs = (NetworkOutputs *)malloc(sizeof(NetworkOutputs));
     network_outputs->gradients = gradients;
@@ -79,8 +83,21 @@ NetworkOutputs *forward_pass(
 }
 
 
-void backward_pass(NetworkOutputs *network_outputs, NetworkWeights *network_weights) {
-    // Update linear weights.
+void backward_pass(LayerGradients *gradients, NetworkWeights *network_weights, uint32_t num_samples, float learning_rate) {
+    // Go through layers from the second last to the first to update gradients + weights.
+    
+    // Layer 4: linear layer.
+    run_linear_backward(network_weights->linear_weight, &gradients[4], &gradients[5], learning_rate);
+
+    // Layer 3: flatten layer (i.e., change the dimension of the next layer's gradients).
+    run_flatten_backward(num_samples, POOL_KERNEL_LENGTH, &gradients[3], &gradients[4]);
+
+    // Layer 2: pooling layer.
+    run_pooling_backward(POOL_KERNEL_LENGTH, &gradients[2], &gradients[3]);
+
+
+    // run_sigmoid_backward(&gradients[1], &gradients[2]);
+    
     // Update conv2d weights.
 }
 
@@ -139,8 +156,8 @@ NetworkWeights *train_model(ImageDataset *dataset, uint32_t batch_size) {
 
             NetworkOutputs *network_outputs = forward_pass(train_X_d, train_y_d, network_weights, image_height, image_width, num_samples_in_batch);
             Tensor *loss = compute_negative_log_likelihood_log_lost(network_outputs->output, train_y_d);
-            backward_pass(network_outputs, network_weights);
-            
+            backward_pass(network_outputs->gradients, network_weights, num_samples_in_batch, LEARNING_RATE);
+            break;
         }
         break;
         if (epoch_index > 0 && epoch_index % num_epochs_valid_iter == 0) {

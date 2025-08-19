@@ -288,7 +288,33 @@ void run_pooling_forward(Tensor *tensor, uint32_t kernel_length, pooling_type po
 }
 
 
-void run_flatten_layer(Tensor *tensor) {
+void run_pooling_backward(uint32_t kernel_length, LayerGradients *grad, LayerGradients *next_layer_grad) {
+    Tensor *dX = grad->dX_or_X;
+    uint32_t num_samples  = dX->dim[0];
+    uint32_t num_channels = dX->dim[1];
+    uint32_t grad_height  = dX->dim[2];
+    uint32_t grad_width   = dX->dim[3];
+    uint32_t next_layer_grad_height = grad_height / kernel_length;
+    uint32_t next_layer_grad_width  =  grad_width / kernel_length;
+    
+    uint32_t grid_height = ceil(grad_height * 1.0 / TILE_WIDTH);
+    uint32_t grid_width = ceil(grad_width * 1.0 / TILE_WIDTH);
+    uint32_t grad_tiles_num = grid_width * grid_height;
+
+    dim3 dimBlock(TILE_WIDTH, TILE_WIDTH);
+    dim3 dimGrid(num_channels, grad_tiles_num, num_samples);
+
+    PoolBackwardKernel<<<dimGrid, dimBlock>>>(
+        dX->values_d, next_layer_grad->dX_or_X->values_d,
+        kernel_length,
+        grid_height, grid_width,
+        grad_height, grad_width,
+        next_layer_grad_height, next_layer_grad_width
+    );
+}
+
+
+void run_flatten_forward(Tensor *tensor) {
     // Make sure to keep the sample dimension.
     uint32_t num_samples = tensor->dim[0];
     uint32_t size = get_tensor_values_size(tensor->num_dim, tensor->dim) / num_samples;
@@ -298,6 +324,29 @@ void run_flatten_layer(Tensor *tensor) {
     tensor->dim = (uint32_t *)malloc(tensor->num_dim * sizeof(uint32_t));
     tensor->dim[0] = num_samples;
     tensor->dim[1] = size;
+}
+
+
+void run_flatten_backward(uint32_t num_samples, uint8_t kernel_length, LayerGradients *grad, LayerGradients *next_layer_grad) {
+    grad->dW_or_W = NULL;
+    
+    // Update dX.
+    Tensor *dX = deep_copy_tensor(next_layer_grad->dX_or_X);
+    // Derive dimensions from num_samples and kernel_length:
+    // out_size = num_samples * num_channels * kernel_length**2.
+    uint32_t out_size     = get_tensor_values_size(dX->num_dim, dX->dim);
+    uint32_t num_channels = out_size / (num_samples * kernel_length * kernel_length);
+    dX->num_dim = 4;
+
+    free(dX->dim);
+    dX->dim = (uint32_t *)malloc(dX->num_dim * sizeof(uint32_t));
+    dX->dim[0] = num_samples;
+    dX->dim[1] = num_channels;
+    dX->dim[2] = kernel_length;
+    dX->dim[3] = kernel_length;
+
+    grad->dX_or_X = dX;
+    grad->is_grad = true;
 }
 
 
@@ -354,6 +403,49 @@ void run_linear_forward(Tensor *X, Tensor *linear_weights, LayerGradients *grad)
 }
 
 
+void run_linear_backward(Tensor *linear_weights, LayerGradients *grad, LayerGradients *next_layer_grad, float lr) {
+    // Recall dY has dimension [num_samples x out_features].
+    Tensor *dY = next_layer_grad->dX_or_X;
+    Tensor *dW = grad->dW_or_W;
+    Tensor *dX = grad->dX_or_X;
+
+    uint32_t num_samples  = dY->dim[0];
+    uint32_t out_features = dY->dim[1];
+    uint32_t in_features  = dW->dim[1];
+
+    float *dYT, *updated_dW_d, *updated_dX_d;
+    cudaMalloc((void**)&dYT, num_samples * out_features * sizeof(float));
+    cudaMemset(dYT, 0, num_samples * out_features * sizeof(float));
+    
+    // Update dW = dY.T @ dW.
+    // Transpose dY.
+    dim3 dimBlock(TILE_WIDTH, TILE_WIDTH);
+    dim3 dimGridTranspose(ceil(num_samples * 1.0 / TILE_WIDTH), ceil(out_features * 1.0 / TILE_WIDTH));
+    TransposeMatrixKernel<<<dimGridTranspose, dimBlock>>>(dY->values_d, dYT, out_features, num_samples);
+
+    cudaMalloc((void**)&updated_dW_d, out_features * in_features * sizeof(float));
+    dim3 dimGridUpdateDW(ceil(in_features * 1.0 / TILE_WIDTH / THREAD_COARSENING_FACTOR), ceil(out_features * 1.0 / TILE_WIDTH));
+    MatMulKernel<<<dimGridUpdateDW, dimBlock>>>(dYT, dW->values_d, updated_dW_d, out_features, num_samples, in_features);
+
+    cudaFree(dW->values_d);
+    dW->values_d = updated_dW_d;
+    dW->dim[0]   = out_features;
+
+    // Update dX = dY @ dX.
+    dim3 dimGridUpdateDX(ceil(in_features * 1.0 / TILE_WIDTH / THREAD_COARSENING_FACTOR), ceil(num_samples * 1.0 / TILE_WIDTH));
+    cudaMalloc((void**)&updated_dX_d, num_samples * in_features * sizeof(float));
+    MatMulKernel<<<dimGridUpdateDX, dimBlock>>>(dY->values_d, dX->values_d, updated_dX_d, num_samples, out_features, in_features);
+    
+    cudaFree(dX->values_d);
+    dX->values_d = updated_dX_d;
+    dX->dim[0]   = num_samples;
+
+    // Update weights W = W - lr * dW.
+    dim3 dimGridUpdateW(ceil(in_features * 1.0 / TILE_WIDTH), ceil(out_features * 1.0 / TILE_WIDTH));
+    UpdateParameterKernel<<<dimGridUpdateW, dimBlock>>>(linear_weights->values_d, updated_dW_d, out_features, in_features, lr);
+}
+
+
 /**
  * Perform softmax function on a 2D tensor across column.
  * TODO: enable performing the softmax on n-dimensional tensor given the input axis.
@@ -407,7 +499,7 @@ void run_softmax_forward(Tensor *tensor, uint8_t *y_d, LayerGradients *grad) {
 
     grad->dW_or_W = NULL;
     grad->dX_or_X = dX;
-    grad->is_grad = false;
+    grad->is_grad = true;
 }
 
 

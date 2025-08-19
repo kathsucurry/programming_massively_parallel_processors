@@ -37,12 +37,43 @@ __global__ void PoolForwardKernel(
     uint32_t out_height, uint32_t out_width
 );
 
+__global__ void PoolBackwardKernel(
+    float *grad, float *next_layer_grad,
+    uint32_t kernel_length,
+    uint32_t grid_height, uint32_t grid_width,
+    uint32_t grad_height, uint32_t grad_width,
+    uint32_t next_layer_grad_height, uint32_t next_layer_grad_width
+
+);
+
+
+/**
+ * Given X and W (linear_weights), perform matrix multiplication (X, A.T).
+ * The difference between this kernel and the MatMulKernel is that this kernel
+ * takes advantage of A.T column-major format for memory coaslescing.
+ */
 __global__ void LinearForwardKernel(
-    float *X, float *Y,
-    float *linear_weights,
+    float *X, float *A, float *Y,
     uint32_t num_samples,
     uint32_t in_features, uint32_t out_features
 );
+
+
+/**
+ * Given matrix1 and matrix2, perform matrix multiplication (matrix1, matrix2).
+ */
+__global__ void MatMulKernel(   
+    float *X, float *A,
+    float *Y,
+    uint32_t X_height, uint32_t X_width, uint32_t A_width
+);
+
+__global__ void TransposeMatrixKernel(   
+    float *matrix, float *Y,
+    uint32_t height, uint32_t width
+);
+
+__global__ void UpdateParameterKernel(float *W, float *dW, uint32_t height, uint32_t width, float lr);
 
 __global__ void CalcExpAndSumByRowKernel(
     float *X, float *exp_X, float *sum_exp_X, uint32_t num_samples, uint32_t num_features
