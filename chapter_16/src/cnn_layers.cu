@@ -226,6 +226,11 @@ void run_sigmoid_forward(Tensor *tensor, LayerGradients *grad) {
 }
 
 
+void run_sigmoid_backward(LayerGradients *grad, LayerGradients *next_layer_grad) {
+    
+}
+
+
 // Assume stride is always the kernel size.
 void run_pooling_forward(Tensor *tensor, uint32_t kernel_length, pooling_type pool_type, LayerGradients *grad) {
     uint32_t num_samples    = tensor->dim[0];

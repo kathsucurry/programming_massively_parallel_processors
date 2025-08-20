@@ -51,6 +51,7 @@ void run_conv2d_forward(
 );
 
 void run_sigmoid_forward(Tensor *tensor, LayerGradients *grad);
+void run_sigmoid_backward(LayerGradients *grad, LayerGradients *next_layer_grad);
 
 void run_pooling_forward(Tensor *tensor, uint32_t kernel_length, pooling_type pool_type, LayerGradients *grad);
 void run_pooling_backward(uint32_t kernel_length, LayerGradients *grad, LayerGradients *next_layer_grad);

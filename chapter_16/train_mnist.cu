@@ -31,7 +31,7 @@ void eval_model() {
  * For simplicity, the model architecture is fixed for now.
  * 
  * The model architecture is as follows.
- * - Convolution layer: 16 filters, each 5 x 5 --> output dim = 5 x 28 x 28
+ * - Convolution layer: 16 filters, each 5 x 5 --> output dim = 16 x 28 x 28
  * - Sigmoid layer
  * - Pooling layer: kernel size 2 x 2 --> output dim = 14 x 14
  * - Flatten layer --> output dim = 3136
@@ -95,14 +95,13 @@ void backward_pass(LayerGradients *gradients, NetworkWeights *network_weights, u
     // Layer 2: pooling layer.
     run_pooling_backward(POOL_KERNEL_LENGTH, &gradients[2], &gradients[3]);
 
-
-    // run_sigmoid_backward(&gradients[1], &gradients[2]);
+    // Layer 1: sigmoid layer.
+    run_sigmoid_backward(&gradients[1], &gradients[2]);
     
     // Update conv2d weights.
 }
 
 NetworkWeights *train_model(ImageDataset *dataset, uint32_t batch_size) {
-    // uint32_t num_samples = dataset->num_samples;
     uint32_t num_samples = dataset->num_samples;
 
     // Perform simple dataset split into training and validation.
@@ -126,33 +125,33 @@ NetworkWeights *train_model(ImageDataset *dataset, uint32_t batch_size) {
 
     uint32_t num_epochs = 5;
     uint32_t num_epochs_valid_iter = 2;
-    uint32_t num_batches = ceil(num_train_samples * 1.0 / BATCH_SIZE);
+    uint32_t num_batches = ceil(num_train_samples * 1.0 / batch_size);
     uint32_t image_height = train->images[0].height;
     uint32_t image_width = train->images[0].width;
     uint32_t image_size = image_height * image_width;
     
-    float train_X[BATCH_SIZE * image_size];
-    uint8_t train_y[BATCH_SIZE * LABEL_SIZE];
+    float train_X[batch_size * image_size];
+    uint8_t train_y[batch_size * LABEL_SIZE];
 
     float *train_X_d;
     uint8_t *train_y_d;
 
-    cudaMalloc((void**)&train_X_d, BATCH_SIZE * image_size * sizeof(float));
-    cudaMalloc((void**)&train_y_d, BATCH_SIZE * LABEL_SIZE * sizeof(uint8_t));
+    cudaMalloc((void**)&train_X_d, batch_size * image_size * sizeof(float));
+    cudaMalloc((void**)&train_y_d, batch_size * LABEL_SIZE * sizeof(uint8_t));
 
     // For each epoch, run forward pass, evaluate on validation (i.e., forward pass + assess), backward pass.
     for (uint32_t epoch_index = 0; epoch_index < num_epochs; ++epoch_index) {
         // Shuffle the training indices.
         shuffle_indices(train, epoch_index);
         for (uint32_t batch_index = 0; batch_index < num_batches; ++batch_index) {
-            uint32_t num_samples_in_batch = min(num_train_samples - batch_index * BATCH_SIZE, BATCH_SIZE);
+            uint32_t num_samples_in_batch = min(num_train_samples - batch_index * batch_size, batch_size);
             
             // Fill the batch.
             prepare_batch(train_X, train_y, train, num_samples_in_batch);
 
             // Copy host variables to device memory.
             cudaMemcpy(train_X_d, train_X, num_samples_in_batch * image_size * sizeof(float), cudaMemcpyHostToDevice);
-            cudaMemcpy(train_y_d, train_y, num_samples_in_batch * sizeof(uint8_t), cudaMemcpyHostToDevice);
+            cudaMemcpy(train_y_d, train_y, num_samples_in_batch * LABEL_SIZE * sizeof(uint8_t), cudaMemcpyHostToDevice);
 
             NetworkOutputs *network_outputs = forward_pass(train_X_d, train_y_d, network_weights, image_height, image_width, num_samples_in_batch);
             Tensor *loss = compute_negative_log_likelihood_log_lost(network_outputs->output, train_y_d);
@@ -161,8 +160,8 @@ NetworkWeights *train_model(ImageDataset *dataset, uint32_t batch_size) {
         }
         break;
         if (epoch_index > 0 && epoch_index % num_epochs_valid_iter == 0) {
-            // float *valid_X[BATCH_SIZE * image_size];
-            // uint8_t valid_y[BATCH_SIZE];
+            // float *valid_X[batch_size * image_size];
+            // uint8_t valid_y[batch_size];
             // float *valid_logits = forward_pass(valid_X, valid_y, network_weights, image_size, num_valid_samples);
             // Calculate loss.
             // Evaluate model.
@@ -172,8 +171,8 @@ NetworkWeights *train_model(ImageDataset *dataset, uint32_t batch_size) {
     cudaFree(train_X_d);
     cudaFree(train_y_d);
 
-    free_image_dataset(train);
-    free_image_dataset(valid);
+    free_dataset(train);
+    free_dataset(valid);
 
     return network_weights;
 }

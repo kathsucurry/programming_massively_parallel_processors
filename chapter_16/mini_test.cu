@@ -353,7 +353,7 @@ void run_conv2d_forward_test() {
     free_tensor(output);
     free_tensor(conv2d_weight);
     cudaFree(X_d);
-    free_image_dataset(dataset);
+    free_dataset(dataset);
 }
 
 

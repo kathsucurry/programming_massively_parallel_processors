@@ -330,7 +330,7 @@ __global__ void NegativeLogLikelihoodLogKernel(const float *X, const uint8_t *y,
         if (col >= num_features)
             break;
 
-        sum_value += (-1 * logf(X[row * num_features + col] + eps) * y[row * num_features + col]) / num_samples;
+        sum_value += (-1 * logf(X[row * num_features + col] + 1e-6) * y[row * num_features + col]) / num_samples;
     }
 
     atomicAdd(out, sum_value);

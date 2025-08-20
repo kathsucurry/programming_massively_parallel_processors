@@ -3,9 +3,38 @@
 #include <byteswap.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "data_loader.cuh"
 #include "common.h"
+
+
+void free_MNIST_images(MNISTImage *images, uint32_t num_samples) {
+    for (uint32_t i = 0; i < num_samples; ++i)
+        free(images[i].pixels);
+    free(images);
+}
+
+
+void free_MNIST_dataset(MNISTDataset *dataset) {
+    free_MNIST_images(dataset->images, dataset->num_samples);
+    free(dataset->labels);
+    free(dataset);
+}
+
+
+void free_images(Image *images, uint32_t num_samples) {
+    for (uint32_t i = 0; i < num_samples; ++i)
+        free(images[i].pixels);
+    free(images);
+}
+
+void free_dataset(ImageDataset *dataset) {
+    free_images(dataset->images, dataset->num_samples);
+    free(dataset->labels);
+    free(dataset->view_indices);
+    free(dataset);
+}
 
 
 uint8_t *_uint32_to_byte(uint32_t number) {
@@ -55,6 +84,12 @@ MNISTImage *_load_images_from_idx_file(const char *file_path, uint32_t *num_samp
 
     if (!stream) {
         printf("Error in opening the image file given path %s\n", file_path);
+
+        // Get current path.
+        char path[200];
+        getcwd(path, 200);
+        printf("Current working directory: %s\n", path);
+
         return NULL;
     }
 
@@ -135,26 +170,6 @@ MNISTDataset *load_mnist_dataset(const char *images_file_path, const char *label
     return dataset;
 }
 
-
-void free_mnist_dataset(MNISTDataset *dataset) {
-    for (uint32_t i = 0; i < dataset->num_samples; ++i) {
-        free(dataset->images[i].pixels);
-    }
-    free(dataset->images);
-    free(dataset->labels);
-    free(dataset);
-}
-
-
-void free_image_dataset(ImageDataset *dataset) {
-    for (uint32_t i = 0; i < dataset->num_samples; ++i) {
-        free(dataset->images[i].pixels);
-    }
-    free(dataset->images);
-    free(dataset->view_indices);
-    free(dataset->labels);
-    free(dataset);
-}
 
 
 void shuffle_indices(ImageDataset *dataset, uint8_t seed) {

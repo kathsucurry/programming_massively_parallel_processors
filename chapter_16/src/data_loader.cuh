@@ -40,6 +40,14 @@ typedef struct {
     uint32_t *view_indices;
 } ImageDataset;
 
+
+void free_MNIST_images(MNISTImage *images, uint32_t num_samples);
+void free_MNIST_dataset(MNISTDataset *dataset);
+
+void free_images(Image *images, uint32_t num_samples);
+void free_dataset(ImageDataset *dataset);
+
+
 // IO.
 MNISTDataset *load_mnist_dataset(const char *images_file_path, const char *labels_file_path);
 
@@ -47,7 +55,5 @@ MNISTDataset *load_mnist_dataset(const char *images_file_path, const char *label
 void shuffle_indices(ImageDataset *dataset, uint8_t seed);
 ImageDataset *split_dataset(ImageDataset *dataset, uint32_t begin_index, uint32_t end_index);
 void prepare_batch(float X[], uint8_t y[], ImageDataset *dataset, uint32_t num_samples_in_batch);
-void free_mnist_dataset(MNISTDataset *dataset);
-void free_image_dataset(ImageDataset *dataset);
 
 #endif

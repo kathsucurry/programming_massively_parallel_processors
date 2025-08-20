@@ -11,8 +11,8 @@
 # Ignore input images.
 *.jpg
 
-# Ignore all txt files.
 *.txt
+!chapter_16/tests/*/*.txt
 
 .vscode/*
 
