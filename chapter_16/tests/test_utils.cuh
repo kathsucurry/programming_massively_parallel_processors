@@ -14,7 +14,7 @@
 #include "../src/cnn_layers.cuh"
 
 
-#define compare_eps 1e-5
+#define diff_eps 1e-5
 
 
 void keep_first_n_samples(MNISTDataset *dataset, uint32_t n);

@@ -83,7 +83,7 @@ void compare_results(const char *label, const char *file_path, Tensor *tensor) {
     // printf("\n");
 
     for (uint32_t i = 0; i < out_size; ++i)
-        if (abs(actual_output[i] - expected_output[i]) > compare_eps) {
+        if (abs(actual_output[i] - expected_output[i]) > diff_eps) {
             printf("%.7f %.7f %.7f %u\n", actual_output[i], expected_output[i], abs(actual_output[i] - expected_output[i]), i);
             printf("FAILED\n");
             abort();

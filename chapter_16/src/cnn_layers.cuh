@@ -41,14 +41,8 @@ Tensor *initialize_linear_layer_weights(uint32_t in_channels, uint32_t out_chann
 
 /* Forward layer functions */
 
-void run_conv2d_forward(
-    Tensor *output,
-    Tensor *filters,
-    uint32_t num_samples,
-    uint32_t in_height,
-    uint32_t in_width,
-    LayerGradients *grad
-);
+void run_conv2d_forward(Tensor *output, Tensor *filters, LayerGradients *grad);
+void run_conv2d_backward(Tensor *conv2d_weights, LayerGradients *grad, LayerGradients *next_layer_grad, float learning_rate);
 
 void run_sigmoid_forward(Tensor *tensor, LayerGradients *grad);
 void run_sigmoid_backward(LayerGradients *grad, LayerGradients *next_layer_grad);

@@ -130,23 +130,20 @@ Tensor *initialize_linear_layer_weights(uint32_t in_features, uint32_t out_featu
 /**
  * Conv2 kernel implementation, following the tiled method in chapter 16.3
  */
-void run_conv2d_forward(
-    Tensor *output,
-    Tensor *filters,
-    uint32_t num_samples,
-    uint32_t in_height,
-    uint32_t in_width,
-    LayerGradients *grad
-) {
-    uint32_t filter_length = filters->dim[filters->num_dim - 2];
+void run_conv2d_forward(Tensor *output, Tensor *filters, LayerGradients *grad) {
+    uint32_t num_samples = output->dim[0];
+    uint32_t in_channels = output->dim[1];
+    uint32_t in_height   = output->dim[2];
+    uint32_t in_width    = output->dim[3];
+
+    uint32_t filter_length = filters->dim[filters->num_dim - 1];
     uint32_t out_height    = in_height - filter_length + 1;
     uint32_t out_width     = in_width - filter_length + 1;
     uint32_t out_channels  = filters->dim[0];
-    uint32_t in_channels   = filters->dim[1];
     uint32_t out_size      = num_samples * out_channels * out_height * out_width;
 
     // Store tensors for backprop later.    
-    grad->dW_or_W = deep_copy_tensor(filters);
+    grad->dW_or_W = NULL;
     grad->dX_or_X = deep_copy_tensor(output);
     grad->is_grad = false;
 
@@ -159,14 +156,13 @@ void run_conv2d_forward(
 
     dim3 dimBlock(TILE_WIDTH, TILE_WIDTH, 1);
     dim3 dimGrid(out_channels, out_tiles_num, num_samples);
-    Conv2ForwardKernel<<<dimGrid, dimBlock>>>(
+    Conv2DForwardKernel<<<dimGrid, dimBlock>>>(
         output->values_d, Y_d,
         filters->values_d,
         filter_length,
         in_channels,
         grid_height, grid_width,
-        in_height, in_width,
-        out_height, out_width
+        in_height, in_width
     );
 
     // Update output tensor.
@@ -178,6 +174,84 @@ void run_conv2d_forward(
     output->dim[2] = out_height;
     output->dim[3] = out_width;
     output->values_d = Y_d;
+}
+
+
+void run_conv2d_backward(Tensor *conv2d_weights, LayerGradients *grad, LayerGradients *next_layer_grad, float lr) {
+    // Recall that in grad stores W in dW and X in dX (i.e., not gradient values).
+    // num samples, out channels, filter length
+    Tensor *dY = next_layer_grad->dX_or_X;
+    Tensor *X  = grad->dX_or_X;
+    uint32_t num_samples   = X->dim[0];
+    uint32_t in_channels   = conv2d_weights->dim[1];
+    uint32_t out_channels  = conv2d_weights->dim[0];
+    uint32_t filter_length = conv2d_weights->dim[conv2d_weights->num_dim - 1]; 
+    uint32_t in_height     = X->dim[2];
+    uint32_t in_width      = X->dim[3];
+    uint32_t out_height    = in_height - filter_length + 1;
+    uint32_t out_width     = in_width - filter_length + 1;
+    uint32_t in_size       = num_samples * in_channels * in_height * in_width;
+    uint32_t weight_size   = out_channels * in_channels * filter_length * filter_length;
+
+    // Calculate dX.
+    float *dX_d;
+    cudaMalloc((void**)&dX_d, in_size * sizeof(float));
+    cudaMemset(dX_d, 0, in_size * sizeof(float));
+
+    uint32_t grid_width = ceil(in_width * 1.0 / TILE_WIDTH);
+    uint32_t grid_height = ceil(in_height * 1.0 / TILE_WIDTH);
+    uint32_t out_tiles_num = grid_width * grid_height;
+
+    dim3 dimBlock(TILE_WIDTH, TILE_WIDTH, 1);
+    dim3 dimGriddX(in_channels, out_tiles_num, num_samples);
+    Conv2DBackwardXGradKernel<<<dimGriddX, dimBlock>>>(
+        dX_d, dY->values_d, conv2d_weights->values_d,
+        filter_length,
+        out_channels,
+        grid_height, grid_width,
+        in_height, in_width
+    );
+
+    Tensor *dX = (Tensor *)malloc(sizeof(Tensor));
+    dX->values_d = dX_d;
+    dX->num_dim  = 4;
+    dX->dim      = (uint32_t *)malloc(4 * sizeof(uint32_t));
+    memcpy(dX->dim, X->dim, 4 * sizeof(uint32_t));
+
+    // Calculate dW.
+    float *dW_d;
+    cudaMalloc((void**)&dW_d, weight_size * sizeof(float));
+    cudaMemset(dW_d, 0, weight_size * sizeof(float));
+
+    grid_width  = ceil(filter_length * 1.0 / TILE_WIDTH);
+    grid_height = ceil(filter_length * 1.0 / TILE_WIDTH);
+    out_tiles_num = grid_width * grid_height;
+
+    dim3 dimGriddW(in_channels, out_tiles_num, out_channels);
+    Conv2DBackwardWGradKernel<<<dimGriddW, dimBlock>>>(
+        dW_d, dY->values_d, X->values_d,
+        filter_length,
+        num_samples,
+        grid_height, grid_width,
+        out_height, out_width
+    );
+
+    Tensor *dW = (Tensor *)malloc(sizeof(Tensor));
+    dW->values_d = dW_d;
+    dW->num_dim  = 4;
+    dW->dim      = (uint32_t *)malloc(4 * sizeof(uint32_t));
+    memcpy(dW->dim, conv2d_weights->dim, 4 * sizeof(uint32_t));
+
+    // Update W.
+    Update3DGridParameterKernel<<<dimGriddW, dimBlock>>>(
+        conv2d_weights->values_d, dW_d, filter_length, filter_length, grid_height, grid_width, lr
+    );
+    
+    // Update grad.
+    free_tensor(X);
+    grad->dX_or_X = dX;
+    grad->dW_or_W = dW;
+    grad->is_grad = true;
 }
 
 
@@ -227,7 +301,23 @@ void run_sigmoid_forward(Tensor *tensor, LayerGradients *grad) {
 
 
 void run_sigmoid_backward(LayerGradients *grad, LayerGradients *next_layer_grad) {
-    
+    Tensor *dX = grad->dX_or_X;
+    uint32_t num_samples    = dX->dim[0];
+    uint32_t num_channels   = dX->dim[1];
+    uint32_t feature_height = dX->dim[2];
+    uint32_t feature_width  = dX->dim[3];
+
+    uint32_t grid_height = ceil(feature_height * 1.0 / TILE_WIDTH);
+    uint32_t grid_width = ceil(feature_width * 1.0 / TILE_WIDTH);
+    uint32_t out_tiles_num = grid_width * grid_height;
+
+    dim3 dimBlock(TILE_WIDTH, TILE_WIDTH);
+    dim3 dimGrid(num_channels, out_tiles_num, num_samples);
+    MultiplyKernel<<<dimGrid, dimBlock>>>(
+        dX->values_d, next_layer_grad->dX_or_X->values_d,
+        grid_height, grid_width,
+        feature_height, feature_width
+    );
 }
 
 
@@ -447,7 +537,7 @@ void run_linear_backward(Tensor *linear_weights, LayerGradients *grad, LayerGrad
 
     // Update weights W = W - lr * dW.
     dim3 dimGridUpdateW(ceil(in_features * 1.0 / TILE_WIDTH), ceil(out_features * 1.0 / TILE_WIDTH));
-    UpdateParameterKernel<<<dimGridUpdateW, dimBlock>>>(linear_weights->values_d, updated_dW_d, out_features, in_features, lr);
+    Update2DGridParameterKernel<<<dimGridUpdateW, dimBlock>>>(linear_weights->values_d, updated_dW_d, out_features, in_features, lr);
 }
 
 
