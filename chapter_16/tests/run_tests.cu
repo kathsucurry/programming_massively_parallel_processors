@@ -51,29 +51,29 @@ NetworkOutputs *forward_pass(
     
     // Layer 0: 2D convolution layer.
     run_conv2d_forward(output, network_weights_d->conv2d_weight, num_samples, image_height, image_width, &gradients[0]);
-    compare_results("layer 0 conv2d", "tests/outputs/output_layer0_conv2d.txt", output);
+    // compare_results("layer 0 conv2d", "tests/outputs/output_layer0_conv2d.txt", output);
 
     // Layer 1: Sigmoid activation.
     run_sigmoid_forward(output, &gradients[1]);
-    compare_results("layer 1 sigmoid", "tests/outputs/output_layer1_sigmoid.txt", output);
+    // compare_results("layer 1 sigmoid", "tests/outputs/output_layer1_sigmoid.txt", output);
 
     // Layer 2: Max pooling layer.
     uint32_t pool_kernel_length = POOL_KERNEL_LENGTH;
     pooling_type pool_type = MAX;
     run_pooling_forward(output, pool_kernel_length, pool_type, &gradients[2]);
-    compare_results("layer 2 maxpool", "tests/outputs/output_layer2_maxpool.txt", output);
+    // compare_results("layer 2 maxpool", "tests/outputs/output_layer2_maxpool.txt", output);
     
     // Layer 3: Convert into 1D vector; no grads created.
     run_flatten_forward(output);
-    compare_results("layer 3 flatten", "tests/outputs/output_layer3_flatten.txt", output);
+    // compare_results("layer 3 flatten", "tests/outputs/output_layer3_flatten.txt", output);
 
     // Layer 4: Linear layer.
     run_linear_forward(output, network_weights_d->linear_weight, &gradients[4]);
-    compare_results("layer 4 linear", "tests/outputs/output_layer4_linear.txt", output);
+    // compare_results("layer 4 linear", "tests/outputs/output_layer4_linear.txt", output);
 
     // Layer 5: Softmax layer.
     run_softmax_forward(output, y_d, &gradients[5]);
-    compare_results("layer 5 softmax", "tests/outputs/output_layer5_softmax.txt", output);
+    // compare_results("layer 5 softmax", "tests/outputs/output_layer5_softmax.txt", output);
 
     NetworkOutputs *network_outputs = (NetworkOutputs *)malloc(sizeof(NetworkOutputs));
     network_outputs->gradients = gradients;
@@ -83,23 +83,29 @@ NetworkOutputs *forward_pass(
 }
 
 
-// void backward_pass(LayerGradients *gradients, NetworkWeights *network_weights, uint32_t num_samples, float learning_rate) {
-//     // Go through layers from the second last to the first to update gradients + weights.
+void backward_pass(LayerGradients *gradients, NetworkWeights *network_weights, uint32_t num_samples, float learning_rate) {
+    // Go through layers from the second last to the first to update gradients + weights.
+    compare_results("layer 4 linear dY", "tests/outputs/dy_layer4_linear.txt", gradients[5].dX_or_X);
     
-//     // Layer 4: linear layer.
-//     run_linear_backward(network_weights->linear_weight, &gradients[4], &gradients[5], learning_rate);
+    // Layer 4: linear layer.
+    run_linear_backward(network_weights->linear_weight, &gradients[4], &gradients[5], learning_rate);
+    compare_results("layer 4 linear dX", "tests/outputs/dy_layer3_flatten.txt", gradients[4].dX_or_X);
+    compare_results("layer 4 linear dW", "tests/outputs/weight_grad_layer4_linear.txt", gradients[4].dW_or_W);
 
-//     // Layer 3: flatten layer (i.e., change the dimension of the next layer's gradients).
-//     run_flatten_backward(num_samples, POOL_KERNEL_LENGTH, &gradients[3], &gradients[4]);
+    // Layer 3: flatten layer (i.e., change the dimension of the next layer's gradients).
+    run_flatten_backward(num_samples, POOL_KERNEL_LENGTH, &gradients[3], &gradients[4]);
+    compare_results("layer 3 flatten dX", "tests/outputs/dy_layer2_maxpool.txt", gradients[3].dX_or_X);
 
-//     // Layer 2: pooling layer.
-//     run_pooling_backward(POOL_KERNEL_LENGTH, &gradients[2], &gradients[3]);
+    // Layer 2: pooling layer.
+    run_pooling_backward(POOL_KERNEL_LENGTH, &gradients[2], &gradients[3]);
+    compare_results("layer 2 maxpool dX", "tests/outputs/dy_layer1_sigmoid.txt", gradients[2].dX_or_X);
 
-//     // Layer 1: sigmoid layer.
-//     run_sigmoid_backward(&gradients[1], &gradients[2]);
+    // Layer 1: sigmoid layer.
+    run_sigmoid_backward(&gradients[1], &gradients[2]);
+    compare_results("layer 1 sigmoid dX", "tests/outputs/dy_layer0_conv2d.txt", gradients[1].dX_or_X);
     
-//     // Update conv2d weights.
-// }
+    // Update conv2d weights.
+}
 
 NetworkWeights *train_model(ImageDataset *dataset, uint32_t batch_size) {
     // Prepare the model architecture: conv -> sigmoid -> pooling -> flatten -> linear -> softmax.
@@ -136,15 +142,11 @@ NetworkWeights *train_model(ImageDataset *dataset, uint32_t batch_size) {
     cudaMemcpy(train_y_d, train_y, batch_size * LABEL_SIZE * sizeof(uint8_t), cudaMemcpyHostToDevice);
 
     NetworkOutputs *network_outputs = forward_pass(train_X_d, train_y_d, network_weights, image_height, image_width, batch_size);
-
-    Tensor *output = network_outputs->output;
+    
     Tensor *loss = compute_negative_log_likelihood_log_lost(network_outputs->output, train_y_d);
-    compare_results("cross entropy loss", "tests/outputs/output_loss.txt", loss);
+    // compare_results("cross entropy loss", "tests/outputs/output_loss.txt", loss);
 
-
-
-
-    // backward_pass(network_outputs->gradients, network_weights, num_samples_in_batch, LEARNING_RATE);
+    backward_pass(network_outputs->gradients, network_weights, batch_size, LEARNING_RATE);
 
     cudaFree(train_X_d);
     cudaFree(train_y_d);

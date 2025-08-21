@@ -74,8 +74,17 @@ void compare_results(const char *label, const char *file_path, Tensor *tensor) {
     float *actual_output = (float *)malloc(out_size * sizeof(float));
     cudaMemcpy(actual_output, tensor->values_d, out_size * sizeof(float), cudaMemcpyDeviceToHost);
 
+    // for (uint32_t i = 0; i < tensor->dim[0]; ++i) {
+    //     for (uint32_t j = 0; j < tensor->dim[1]; ++j) {
+    //         printf("%10.4f", actual_output[i * tensor->dim[1] + j]);
+    //     }
+    //     printf("\n");
+    // }
+    // printf("\n");
+
     for (uint32_t i = 0; i < out_size; ++i)
         if (abs(actual_output[i] - expected_output[i]) > compare_eps) {
+            printf("%.7f %.7f %.7f %u\n", actual_output[i], expected_output[i], abs(actual_output[i] - expected_output[i]), i);
             printf("FAILED\n");
             abort();
         }

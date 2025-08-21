@@ -343,5 +343,6 @@ __global__ void SoftmaxGradientKernel(float *dX_d, const float *output, const ui
     if (col >= num_features || row >= num_samples)
         return;
 
-    dX_d[row * num_features + col] = output[row * num_features + col] - y[row * num_features + col];
+    // Make sure to normalize by the number of samples.
+    dX_d[row * num_features + col] = (output[row * num_features + col] - y[row * num_features + col]) / num_samples;
 }
