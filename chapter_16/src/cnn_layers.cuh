@@ -27,6 +27,7 @@ typedef struct {
 
 typedef struct {
     LayerGradients *gradients;
+    uint32_t num_layers;
     Tensor *output;
 } NetworkOutputs;
 
@@ -35,6 +36,8 @@ Tensor *initialize_tensor(float *X, uint8_t num_dim, uint32_t *dim);
 Tensor *deep_copy_tensor(Tensor *tensor);
 void free_tensor(Tensor *tensor);
 void free_layer_gradients(LayerGradients *gradients);
+void free_network_weights(NetworkWeights *weights);
+void free_network_outputs(NetworkOutputs *output);
 
 Tensor *initialize_conv_layer_weights(uint32_t in_channels, uint32_t out_channels, uint8_t filter_size, uint32_t seed);
 Tensor *initialize_linear_layer_weights(uint32_t in_channels, uint32_t out_channels, uint32_t seed);
@@ -58,6 +61,6 @@ void run_linear_backward(Tensor *linear_weights, LayerGradients *grad, LayerGrad
 
 void run_softmax_forward(Tensor *tensor, uint8_t *y_d, LayerGradients *grad);
 
-Tensor *compute_negative_log_likelihood_log_lost(Tensor *tensor, uint8_t *y_d);
+float *compute_negative_log_likelihood_log_lost(Tensor *tensor, uint8_t *y_d);
 
 #endif

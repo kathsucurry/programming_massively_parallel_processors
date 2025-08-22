@@ -6,18 +6,18 @@
 
 #include "../src/data_loader.cuh"
 #include "../src/preprocessing.cuh"
-#include "../src/common.h"
+#include "../src/common.cuh"
 #include "../src/cnn_layers.cuh"
 #include "test_utils.cuh"
 
 
 void keep_first_n_samples(MNISTDataset *dataset, uint32_t n) {
-    MNISTImage *images = (MNISTImage *)malloc(n * sizeof(MNISTImage));
-    uint8_t *labels = (uint8_t *)malloc(n * sizeof(uint8_t));
+    MNISTImage *images = (MNISTImage *)mallocCheck(n * sizeof(MNISTImage));
+    uint8_t *labels = (uint8_t *)mallocCheck(n * sizeof(uint8_t));
     
     for (uint8_t i = 0; i < n; ++i) {
         MNISTImage image = dataset->images[i];
-        uint8_t *pixels = (uint8_t *)malloc(image.height * image.width * sizeof(uint8_t));
+        uint8_t *pixels = (uint8_t *)mallocCheck(image.height * image.width * sizeof(uint8_t));
         memcpy(pixels, image.pixels, image.height * image.width * sizeof(uint8_t));
         images[i].pixels = pixels;
         images[i].height = image.height;
@@ -56,7 +56,7 @@ float *read_float_array_from_file(const char *file_path, uint32_t size) {
     FILE *file;
     file = fopen(file_path, "r");
     
-    float *x = (float *)malloc(size * sizeof(float));
+    float *x = (float *)mallocCheck(size * sizeof(float));
     for (uint32_t i = 0; i < size; ++i)
         fscanf(file, "%f", &x[i]);
 
@@ -65,22 +65,14 @@ float *read_float_array_from_file(const char *file_path, uint32_t size) {
 }
 
 
-void compare_results(const char *label, const char *file_path, Tensor *tensor) {
+void compare_tensor(const char *label, const char *file_path, Tensor *tensor) {
     uint32_t out_size = get_tensor_values_size(tensor->num_dim, tensor->dim);
     float *expected_output = read_float_array_from_file(file_path, out_size);
 
     printf("Test: %s...", label);
 
-    float *actual_output = (float *)malloc(out_size * sizeof(float));
+    float *actual_output = (float *)mallocCheck(out_size * sizeof(float));
     cudaMemcpy(actual_output, tensor->values_d, out_size * sizeof(float), cudaMemcpyDeviceToHost);
-
-    // for (uint32_t i = 0; i < tensor->dim[0]; ++i) {
-    //     for (uint32_t j = 0; j < tensor->dim[1]; ++j) {
-    //         printf("%10.4f", actual_output[i * tensor->dim[1] + j]);
-    //     }
-    //     printf("\n");
-    // }
-    // printf("\n");
 
     for (uint32_t i = 0; i < out_size; ++i)
         if (abs(actual_output[i] - expected_output[i]) > diff_eps) {
@@ -91,4 +83,33 @@ void compare_results(const char *label, const char *file_path, Tensor *tensor) {
     printf("PASSED\n");
 
     free(actual_output);
+    free(expected_output);
+}
+
+
+void compare_float(const char *label, const char *file_path, float *actual_output) {
+    float *expected_output = read_float_array_from_file(file_path, 1);
+
+    printf("Test: %s...", label);
+
+    if (abs(*actual_output - *expected_output) > diff_eps) {
+        printf("Actual: %.7f; Expected:  %.7f; Diff: %.7f\n", *actual_output, *expected_output, abs(*actual_output - *expected_output));
+        printf("FAILED\n");
+        abort();
+    }
+    printf("PASSED\n");
+
+    free(expected_output);
+}
+
+
+void print_flatten_tensor_values(Tensor *tensor, uint32_t print_size) {
+    uint32_t size = get_tensor_values_size(tensor->num_dim, tensor->dim);
+
+    float *values = (float *)mallocCheck(size * sizeof(float));
+    cudaMemcpy(values, tensor->values_d, size * sizeof(float), cudaMemcpyDeviceToHost);
+    for (uint32_t i = 0; i < min(print_size, size); ++i)
+        printf("%8.5f", values[i]);
+    printf("\n");
+    free(values);
 }

@@ -8,7 +8,7 @@
 
 #include <stdint.h>
 
-#include "common.h"
+#include "common.cuh"
 
 
 typedef struct {
@@ -53,7 +53,11 @@ MNISTDataset *load_mnist_dataset(const char *images_file_path, const char *label
 
 // Dataset split.
 void shuffle_indices(ImageDataset *dataset, uint8_t seed);
-ImageDataset *split_dataset(ImageDataset *dataset, uint32_t begin_index, uint32_t end_index);
-void prepare_batch(float X[], uint8_t y[], ImageDataset *dataset, uint32_t num_samples_in_batch);
+ImageDataset *split_dataset(ImageDataset *dataset, uint32_t begin_index, uint32_t end_index, bool clear_dataset);
+void prepare_batch(
+    float X[], uint8_t y[],
+    ImageDataset *dataset,
+    uint32_t start_index, uint32_t num_samples_in_batch
+);
 
 #endif

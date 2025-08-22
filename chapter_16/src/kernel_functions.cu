@@ -2,7 +2,7 @@
 #include <stdint.h>
 
 #include "kernel_functions.cuh"
-#include "common.h"
+#include "common.cuh"
 
 
 /**

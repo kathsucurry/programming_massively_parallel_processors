@@ -6,7 +6,7 @@
 
 #include "../src/data_loader.cuh"
 #include "../src/preprocessing.cuh"
-#include "../src/common.h"
+#include "../src/common.cuh"
 #include "../src/cnn_layers.cuh"
 #include "test_utils.cuh"
 #include "test_data_prep.cuh"

@@ -4,8 +4,8 @@
 
 #include <stdint.h>
 
-#define TILE_WIDTH 2 // 32
-#define THREAD_COARSENING_FACTOR 3 // 8
+#define TILE_WIDTH 32
+#define THREAD_COARSENING_FACTOR 8
 #define eps 1e-6
 
 enum pooling_type { MAX, MEAN };
