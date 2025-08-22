@@ -37,7 +37,8 @@ NetworkOutputs *forward_pass(
     NetworkWeights *network_weights_d,
     uint32_t image_height,
     uint32_t image_width,
-    uint32_t num_samples
+    uint32_t num_samples,
+    bool compute_grad
 ) {
     uint8_t num_layers_with_grads = 6;
     LayerGradients *gradients = (LayerGradients *)mallocCheck(num_layers_with_grads * sizeof(LayerGradients));
@@ -50,24 +51,24 @@ NetworkOutputs *forward_pass(
     Tensor *output = initialize_tensor(X_d, 4, image_dim);
     
     // Layer 0: 2D convolution layer.
-    run_conv2d_forward(output, network_weights_d->conv2d_weight, &gradients[0]);
+    run_conv2d_forward(output, network_weights_d->conv2d_weight, &gradients[0], compute_grad);
 
     // Layer 1: Sigmoid activation.
-    run_sigmoid_forward(output, &gradients[1]);
+    run_sigmoid_forward(output, &gradients[1], compute_grad);
 
     // Layer 2: Max pooling layer.
     uint32_t pool_kernel_length = POOL_KERNEL_LENGTH;
     pooling_type pool_type = MAX;
-    run_pooling_forward(output, pool_kernel_length, pool_type, &gradients[2]);
+    run_pooling_forward(output, pool_kernel_length, pool_type, &gradients[2], compute_grad);
     
     // Layer 3: Convert into 1D vector; no grads created.
     run_flatten_forward(output);
 
     // Layer 4: Linear layer.
-    run_linear_forward(output, network_weights_d->linear_weight, &gradients[4]);
+    run_linear_forward(output, network_weights_d->linear_weight, &gradients[4], compute_grad);
 
     // Layer 5: Softmax layer.
-    run_softmax_forward(output, y_d, &gradients[5]);
+    run_softmax_forward(output, y_d, &gradients[5], compute_grad);
 
     NetworkOutputs *network_outputs = (NetworkOutputs *)mallocCheck(sizeof(NetworkOutputs));
     network_outputs->gradients = gradients;
@@ -158,7 +159,8 @@ NetworkWeights *train_model(ImageDataset *dataset, const uint32_t batch_size) {
                 train_X_d, train_y_d,
                 network_weights,
                 image_height, image_width,
-                num_samples_in_batch
+                num_samples_in_batch,
+                true
             );
             
             float *loss = compute_negative_log_likelihood_log_lost(network_outputs->output, train_y_d);
@@ -167,7 +169,7 @@ NetworkWeights *train_model(ImageDataset *dataset, const uint32_t batch_size) {
             backward_pass(network_outputs->gradients, network_weights, num_samples_in_batch, LEARNING_RATE);
 
             free(loss);
-            free_network_outputs(network_outputs);
+            free_network_outputs(network_outputs, true);
         }
 
         printf("Epoch loss is %.7f\n", epoch_loss);

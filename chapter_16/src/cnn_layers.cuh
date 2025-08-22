@@ -37,29 +37,29 @@ Tensor *deep_copy_tensor(Tensor *tensor);
 void free_tensor(Tensor *tensor);
 void free_layer_gradients(LayerGradients *gradients);
 void free_network_weights(NetworkWeights *weights);
-void free_network_outputs(NetworkOutputs *output);
+void free_network_outputs(NetworkOutputs *output, bool include_grad);
 
 Tensor *initialize_conv_layer_weights(uint32_t in_channels, uint32_t out_channels, uint8_t filter_size, uint32_t seed);
 Tensor *initialize_linear_layer_weights(uint32_t in_channels, uint32_t out_channels, uint32_t seed);
 
 /* Forward layer functions */
 
-void run_conv2d_forward(Tensor *output, Tensor *filters, LayerGradients *grad);
+void run_conv2d_forward(Tensor *output, Tensor *filters, LayerGradients *grad, bool compute_grad);
 void run_conv2d_backward(Tensor *conv2d_weights, LayerGradients *grad, LayerGradients *next_layer_grad, float learning_rate);
 
-void run_sigmoid_forward(Tensor *tensor, LayerGradients *grad);
+void run_sigmoid_forward(Tensor *tensor, LayerGradients *grad, bool compute_grad);
 void run_sigmoid_backward(LayerGradients *grad, LayerGradients *next_layer_grad);
 
-void run_pooling_forward(Tensor *tensor, uint32_t kernel_length, pooling_type pool_type, LayerGradients *grad);
+void run_pooling_forward(Tensor *tensor, uint32_t kernel_length, pooling_type pool_type, LayerGradients *grad, bool compute_grad);
 void run_pooling_backward(uint32_t kernel_length, LayerGradients *grad, LayerGradients *next_layer_grad);
 
 void run_flatten_forward(Tensor *tensor);
 void run_flatten_backward(uint32_t num_samples, uint8_t kernel_length, LayerGradients *grad, LayerGradients *next_layer_grad);
 
-void run_linear_forward(Tensor *X, Tensor *linear_weights, LayerGradients *grad);
+void run_linear_forward(Tensor *X, Tensor *linear_weights, LayerGradients *grad, bool compute_grad);
 void run_linear_backward(Tensor *linear_weights, LayerGradients *grad, LayerGradients *next_layer_grad, float lr);
 
-void run_softmax_forward(Tensor *tensor, uint8_t *y_d, LayerGradients *grad);
+void run_softmax_forward(Tensor *tensor, uint8_t *y_d, LayerGradients *grad, bool compute_grad);
 
 float *compute_negative_log_likelihood_log_lost(Tensor *tensor, uint8_t *y_d);
 

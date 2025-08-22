@@ -38,7 +38,8 @@ NetworkOutputs *forward_pass(
     NetworkWeights *network_weights_d,
     uint32_t image_height,
     uint32_t image_width,
-    uint32_t num_samples
+    uint32_t num_samples,
+    bool compute_grad
 ) {
     uint8_t num_layers_with_grads = 6;
     LayerGradients *gradients = (LayerGradients *)mallocCheck(num_layers_with_grads * sizeof(LayerGradients));
@@ -51,17 +52,17 @@ NetworkOutputs *forward_pass(
     Tensor *output = initialize_tensor(X_d, 4, image_dim);
     
     // Layer 0: 2D convolution layer.
-    run_conv2d_forward(output, network_weights_d->conv2d_weight, &gradients[0]);
+    run_conv2d_forward(output, network_weights_d->conv2d_weight, &gradients[0], compute_grad);
     compare_tensor("layer 0 conv2d", "tests/outputs/output_layer0_conv2d.txt", output);
 
     // Layer 1: Sigmoid activation.
-    run_sigmoid_forward(output, &gradients[1]);
+    run_sigmoid_forward(output, &gradients[1], compute_grad);
     compare_tensor("layer 1 sigmoid", "tests/outputs/output_layer1_sigmoid.txt", output);
 
     // Layer 2: Max pooling layer.
     uint32_t pool_kernel_length = POOL_KERNEL_LENGTH;
     pooling_type pool_type = MAX;
-    run_pooling_forward(output, pool_kernel_length, pool_type, &gradients[2]);
+    run_pooling_forward(output, pool_kernel_length, pool_type, &gradients[2], compute_grad);
     compare_tensor("layer 2 maxpool", "tests/outputs/output_layer2_maxpool.txt", output);
     
     // Layer 3: Convert into 1D vector; no grads created.
@@ -69,11 +70,11 @@ NetworkOutputs *forward_pass(
     compare_tensor("layer 3 flatten", "tests/outputs/output_layer3_flatten.txt", output);
 
     // Layer 4: Linear layer.
-    run_linear_forward(output, network_weights_d->linear_weight, &gradients[4]);
+    run_linear_forward(output, network_weights_d->linear_weight, &gradients[4], compute_grad);
     compare_tensor("layer 4 linear", "tests/outputs/output_layer4_linear.txt", output);
 
     // Layer 5: Softmax layer.
-    run_softmax_forward(output, y_d, &gradients[5]);
+    run_softmax_forward(output, y_d, &gradients[5], compute_grad);
     compare_tensor("layer 5 softmax", "tests/outputs/output_layer5_softmax.txt", output);
 
     NetworkOutputs *network_outputs = (NetworkOutputs *)mallocCheck(sizeof(NetworkOutputs));
@@ -147,7 +148,7 @@ NetworkWeights *train_model(ImageDataset *dataset, uint32_t batch_size) {
     cudaMemcpy(train_X_d, train_X, batch_size * image_size * sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(train_y_d, train_y, batch_size * LABEL_SIZE * sizeof(uint8_t), cudaMemcpyHostToDevice);
 
-    NetworkOutputs *network_outputs = forward_pass(train_X_d, train_y_d, network_weights, image_height, image_width, batch_size);
+    NetworkOutputs *network_outputs = forward_pass(train_X_d, train_y_d, network_weights, image_height, image_width, batch_size, true);
     
     float *loss = compute_negative_log_likelihood_log_lost(network_outputs->output, train_y_d);
     compare_float("cross entropy loss", "tests/outputs/output_loss.txt", loss);
@@ -155,7 +156,7 @@ NetworkWeights *train_model(ImageDataset *dataset, uint32_t batch_size) {
     backward_pass(network_outputs->gradients, network_weights, batch_size, LEARNING_RATE);
 
     free(loss);
-    free_network_outputs(network_outputs);
+    free_network_outputs(network_outputs, true);
     cudaFree(train_X_d);
     cudaFree(train_y_d);
 
