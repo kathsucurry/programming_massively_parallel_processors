@@ -30,6 +30,21 @@
 
 #define LEARNING_RATE 0.01
 #define POOL_KERNEL_LENGTH 2
+#define POOL_TYPE MAX
+#define NUM_EPOCHS 5
+// The loss and accuracy of the validation set will be computed every NUM_VALID_ITER epochs.
+#define NUM_EPOCHS_VALID_ITER 2 
+
+
+ImageDataset *preprocess_images(MNISTDataset *mnist_dataset) {
+    ImageDataset *transformed = add_padding(
+        normalize_pixels(
+            prepare_dataset(mnist_dataset)
+        ),
+        2
+    );
+    return transformed;
+}
 
 
 NetworkOutputs *forward_pass(
@@ -57,9 +72,7 @@ NetworkOutputs *forward_pass(
     run_sigmoid_forward(output, &gradients[1], compute_grad);
 
     // Layer 2: Max pooling layer.
-    uint32_t pool_kernel_length = POOL_KERNEL_LENGTH;
-    pooling_type pool_type = MAX;
-    run_pooling_forward(output, pool_kernel_length, pool_type, &gradients[2], compute_grad);
+    run_pooling_forward(output, POOL_KERNEL_LENGTH, POOL_TYPE, &gradients[2], compute_grad);
     
     // Layer 3: Convert into 1D vector; no grads created.
     run_flatten_forward(output);
@@ -98,7 +111,65 @@ void backward_pass(LayerGradients *gradients, NetworkWeights *network_weights, u
     run_conv2d_backward(network_weights->conv2d_weight, &gradients[0], &gradients[1], learning_rate);
 }
 
-NetworkWeights *train_model(ImageDataset *dataset, const uint32_t batch_size) {
+
+EpochOutput run_one_epoch(
+    ImageDataset *dataset,
+    float X[], uint8_t y[],
+    float *X_d, uint8_t *y_d,
+    NetworkWeights *network_weights,
+    bool update_weight,
+    bool compute_accuracy
+) {
+    uint32_t num_samples = dataset->num_samples;
+    uint32_t num_batches = ceil(num_samples * 1.0 / BATCH_SIZE);
+
+    uint32_t image_height = dataset->images[0].height;
+    uint32_t image_width = dataset->images[0].width;
+    uint32_t image_size = image_height * image_width;
+
+    float loss_sum = 0.0f;
+    uint32_t correct_pred_sum = 0;
+    EpochOutput epoch_output;
+
+    for (uint32_t batch_index = 0; batch_index < num_batches; ++batch_index) {
+        uint32_t num_samples_in_batch = min(num_samples - batch_index * BATCH_SIZE, BATCH_SIZE);
+
+        // Fill the batch.
+        prepare_batch(X, y, dataset, batch_index * BATCH_SIZE, num_samples_in_batch);
+
+        // Copy host variables to device memory.
+        cudaMemcpy(X_d, X, num_samples_in_batch * image_size * sizeof(float), cudaMemcpyHostToDevice);
+        cudaMemcpy(y_d, y, num_samples_in_batch * LABEL_SIZE * sizeof(uint8_t), cudaMemcpyHostToDevice);
+
+        NetworkOutputs *network_outputs = forward_pass(
+            X_d, y_d,
+            network_weights,
+            image_height, image_width,
+            num_samples_in_batch,
+            update_weight
+        );
+            
+        float *loss = compute_negative_log_likelihood_log_lost(network_outputs->output, y_d);
+        loss_sum += *loss;
+
+        if (update_weight)
+            backward_pass(network_outputs->gradients, network_weights, num_samples_in_batch, LEARNING_RATE);
+
+        if (compute_accuracy)
+            correct_pred_sum += 0;
+
+        free(loss);
+        free_network_outputs(network_outputs, update_weight);
+    }
+
+    epoch_output.loss = loss_sum;
+    epoch_output.accuracy_percent = correct_pred_sum / num_samples * 100.0;
+
+    return epoch_output;
+}
+
+
+NetworkWeights *train_model(ImageDataset *dataset) {
     uint32_t num_samples = dataset->num_samples;
 
     // Perform simple dataset split into training and validation.
@@ -122,68 +193,47 @@ NetworkWeights *train_model(ImageDataset *dataset, const uint32_t batch_size) {
     network_weights->conv2d_weight = initialize_conv_layer_weights(1, 16, 5, 0);
     network_weights->linear_weight = initialize_linear_layer_weights(3136, 10, 1);
 
-    uint32_t num_epochs = 5;
-    uint32_t num_epochs_valid_iter = 2;
-    uint32_t num_batches = ceil(num_train_samples * 1.0 / batch_size);
-    printf("# Batches: %u\n", num_batches);
-
     uint32_t image_height = train->images[0].height;
     uint32_t image_width = train->images[0].width;
     uint32_t image_size = image_height * image_width;
     
-    float train_X[batch_size * image_size];
-    uint8_t train_y[batch_size * LABEL_SIZE];
+    float X[BATCH_SIZE * image_size];
+    uint8_t y[BATCH_SIZE * LABEL_SIZE];
 
-    float *train_X_d;
-    uint8_t *train_y_d;
+    float *X_d;
+    uint8_t *y_d;
 
-    cudaMallocCheck((void**)&train_X_d, batch_size * image_size * sizeof(float));
-    cudaMallocCheck((void**)&train_y_d, batch_size * LABEL_SIZE * sizeof(uint8_t));
+    cudaMallocCheck((void**)&X_d, BATCH_SIZE * image_size * sizeof(float));
+    cudaMallocCheck((void**)&y_d, BATCH_SIZE * LABEL_SIZE * sizeof(uint8_t));
 
-    for (uint32_t epoch_index = 0; epoch_index < num_epochs; ++epoch_index) {
-        float epoch_loss = 0;    
-    
+    for (uint32_t epoch_index = 0; epoch_index < NUM_EPOCHS; ++epoch_index) {
+        // Run training.
         shuffle_indices(train, epoch_index);
+        EpochOutput train_epoch_output = run_one_epoch(
+            train,
+            X, y,
+            X_d, y_d,
+            network_weights,
+            true,
+            false
+        );
 
-        for (uint32_t batch_index = 0; batch_index < num_batches; ++batch_index) {
-            uint32_t num_samples_in_batch = min(num_train_samples - batch_index * batch_size, batch_size);
-
-            // Fill the batch.
-            prepare_batch(train_X, train_y, train, batch_index * batch_size, num_samples_in_batch);
-
-            // Copy host variables to device memory.
-            cudaMemcpy(train_X_d, train_X, num_samples_in_batch * image_size * sizeof(float), cudaMemcpyHostToDevice);
-            cudaMemcpy(train_y_d, train_y, num_samples_in_batch * LABEL_SIZE * sizeof(uint8_t), cudaMemcpyHostToDevice);
-
-            NetworkOutputs *network_outputs = forward_pass(
-                train_X_d, train_y_d,
+        printf("Epoch loss is %.7f\n", train_epoch_output.loss);
+        if (epoch_index > 0 && epoch_index % NUM_EPOCHS_VALID_ITER == 0) {
+            // Run forward pass on validation set.
+            EpochOutput valid_epoch_output = run_one_epoch(
+                valid,
+                X, y,
+                X_d, y_d,
                 network_weights,
-                image_height, image_width,
-                num_samples_in_batch,
+                false,
                 true
             );
-            
-            float *loss = compute_negative_log_likelihood_log_lost(network_outputs->output, train_y_d);
-            epoch_loss += *loss;
-
-            backward_pass(network_outputs->gradients, network_weights, num_samples_in_batch, LEARNING_RATE);
-
-            free(loss);
-            free_network_outputs(network_outputs, true);
-        }
-
-        printf("Epoch loss is %.7f\n", epoch_loss);
-        if (epoch_index > 0 && epoch_index % num_epochs_valid_iter == 0) {
-            // float *valid_X[batch_size * image_size];
-            // uint8_t valid_y[batch_size];
-            // float *valid_logits = forward_pass(valid_X, valid_y, network_weights, image_size, num_valid_samples);
-            // Calculate loss.
-            // Evaluate model.
         }
     }
     
-    cudaFree(train_X_d);
-    cudaFree(train_y_d);
+    cudaFree(X_d);
+    cudaFree(y_d);
 
     free_dataset(train);
     free_dataset(valid);
@@ -197,22 +247,13 @@ int main() {
         "../../Dataset/mnist/train-images-idx3-ubyte",
         "../../Dataset/mnist/train-labels-idx1-ubyte"
     );
+    printf("[INFO] # Samples in training set: %d\n", dataset->num_samples);
 
-    printf("# Samples in training set: %d\n", dataset->num_samples);
-
-    // Normalize the pixel values to [0..1].
-    ImageDataset *transformed_train_dataset = add_padding(
-        normalize_pixels(
-            prepare_dataset(dataset)
-        ),
-        2
-    );
-
+    ImageDataset *transformed_train_dataset = preprocess_images(dataset);
     free_MNIST_dataset(dataset);
 
-    // print_sample(transformed_train_dataset, 2);
-
-    NetworkWeights *model_weights = train_model(transformed_train_dataset, BATCH_SIZE);
+    NetworkWeights *model_weights = train_model(transformed_train_dataset);
+    free_dataset(transformed_train_dataset);
 
     // Run evaluation on the test set.
     // MNISTDataset *test_dataset = load_mnist_dataset(
@@ -221,5 +262,4 @@ int main() {
     // );
 
     free_network_weights(model_weights);
-    free_dataset(transformed_train_dataset);
 }

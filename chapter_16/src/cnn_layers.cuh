@@ -31,6 +31,13 @@ typedef struct {
     Tensor *output;
 } NetworkOutputs;
 
+
+typedef struct {
+    float loss;
+    float accuracy_percent;
+} EpochOutput;
+
+
 uint32_t get_tensor_values_size(const uint8_t num_dim, const uint32_t *dim);
 Tensor *initialize_tensor(float *X, uint8_t num_dim, uint32_t *dim);
 Tensor *deep_copy_tensor(Tensor *tensor);

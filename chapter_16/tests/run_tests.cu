@@ -30,7 +30,19 @@
 
 #define LEARNING_RATE 0.005
 #define POOL_KERNEL_LENGTH 2
+#define POOL_TYPE MAX
 #define NUM_SAMPLES 5
+
+
+ImageDataset *preprocess_images(MNISTDataset *mnist_dataset) {
+    ImageDataset *transformed = add_padding(
+        normalize_pixels(
+            prepare_dataset(mnist_dataset)
+        ),
+        2
+    );
+    return transformed;
+}
 
 
 NetworkOutputs *forward_pass(
@@ -60,9 +72,7 @@ NetworkOutputs *forward_pass(
     compare_tensor("layer 1 sigmoid", "tests/outputs/output_layer1_sigmoid.txt", output);
 
     // Layer 2: Max pooling layer.
-    uint32_t pool_kernel_length = POOL_KERNEL_LENGTH;
-    pooling_type pool_type = MAX;
-    run_pooling_forward(output, pool_kernel_length, pool_type, &gradients[2], compute_grad);
+    run_pooling_forward(output, POOL_KERNEL_LENGTH, POOL_TYPE, &gradients[2], compute_grad);
     compare_tensor("layer 2 maxpool", "tests/outputs/output_layer2_maxpool.txt", output);
     
     // Layer 3: Convert into 1D vector; no grads created.
@@ -113,6 +123,7 @@ void backward_pass(LayerGradients *gradients, NetworkWeights *network_weights, u
     compare_tensor("layer 0 conv2d dW", "tests/outputs/weight_grad_layer0_conv2d.txt", gradients[0].dW_or_W);
     compare_tensor("layer 0 conv2d updated W", "tests/outputs/updated_weight_layer0_conv2d.txt", network_weights->conv2d_weight);
 }
+
 
 NetworkWeights *train_model(ImageDataset *dataset, uint32_t batch_size) {
     // Prepare the model architecture: conv -> sigmoid -> pooling -> flatten -> linear -> softmax.
@@ -173,23 +184,12 @@ int main() {
     // Keep only the first three samples.
     keep_first_n_samples(dataset, NUM_SAMPLES);
 
-    printf("# Samples in training set: %d\n", dataset->num_samples);
+    printf("[INFO] # Samples in training set: %d\n", dataset->num_samples);
 
-    // Normalize the pixel values to [0..1].
-    ImageDataset *transformed_train_dataset = add_padding(
-        normalize_pixels(
-            prepare_dataset(dataset)
-        ),
-        2
-    );
-
+    ImageDataset *transformed_train_dataset = preprocess_images(dataset);
     free_MNIST_dataset(dataset);
 
-    // print_sample(transformed_train_dataset, 2);
-
     NetworkWeights *model_weights = train_model(transformed_train_dataset, 3);
-
-    // Run evaluation on the test set.
 
     free_dataset(transformed_train_dataset);
     free_network_weights(model_weights);
