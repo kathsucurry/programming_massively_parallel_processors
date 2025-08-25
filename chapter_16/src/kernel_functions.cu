@@ -481,3 +481,24 @@ __global__ void SoftmaxGradientKernel(float *dX_d, const float *output, const ui
     // Make sure to normalize by the number of samples.
     dX_d[row * num_features + col] = (output[row * num_features + col] - y[row * num_features + col]) / num_samples;
 }
+
+
+__global__ void GetAccuratePredKernel(
+    const float *X, const uint8_t *y, uint32_t *sum, uint32_t num_samples, uint32_t num_features
+) {
+    uint32_t sample_index = blockDim.x * blockIdx.x + threadIdx.x;
+    if (sample_index >= num_samples)
+        return;
+    
+    float max_logit     = 0;
+    uint32_t argmax_idx = 0;
+    for (uint32_t label_idx = 0; label_idx < num_features; ++label_idx) {
+        uint32_t index = sample_index * num_features + label_idx;
+        if (X[index] > max_logit) {
+            max_logit = X[index];
+            argmax_idx = label_idx;
+        }
+    }
+    if (y[sample_index * num_features + argmax_idx] == 1)
+        atomicAdd(&sum[0], 1);
+}

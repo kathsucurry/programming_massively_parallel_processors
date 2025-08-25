@@ -155,15 +155,16 @@ EpochOutput run_one_epoch(
         if (update_weight)
             backward_pass(network_outputs->gradients, network_weights, num_samples_in_batch, LEARNING_RATE);
 
-        if (compute_accuracy)
-            correct_pred_sum += 0;
+        if (compute_accuracy) {
+            correct_pred_sum += *(get_accurate_predictions(network_outputs->output, y_d));
+        }
 
         free(loss);
         free_network_outputs(network_outputs, update_weight);
     }
 
     epoch_output.loss = loss_sum;
-    epoch_output.accuracy_percent = correct_pred_sum / num_samples * 100.0;
+    epoch_output.accuracy_percent = correct_pred_sum * 1.0 / num_samples * 100;
 
     return epoch_output;
 }
@@ -218,8 +219,8 @@ NetworkWeights *train_model(ImageDataset *dataset) {
             false
         );
 
-        printf("Epoch loss is %.7f\n", train_epoch_output.loss);
-        if (epoch_index > 0 && epoch_index % NUM_EPOCHS_VALID_ITER == 0) {
+        printf("Epoch %u:\n--> train loss: %.3f\n", epoch_index, train_epoch_output.loss);
+        if (epoch_index > 0 && (epoch_index - 1) % NUM_EPOCHS_VALID_ITER == 0) {
             // Run forward pass on validation set.
             EpochOutput valid_epoch_output = run_one_epoch(
                 valid,
@@ -229,6 +230,7 @@ NetworkWeights *train_model(ImageDataset *dataset) {
                 false,
                 true
             );
+            printf("--> valid loss: %.3f | accuracy: %.3f%%\n", valid_epoch_output.loss, valid_epoch_output.accuracy_percent);
         }
     }
     

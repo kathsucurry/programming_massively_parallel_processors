@@ -114,5 +114,9 @@ __global__ void SoftmaxGradientKernel(
     float *dX_d, const float *output, const uint8_t *y, uint32_t num_samples, uint32_t num_features
 );
 
+__global__ void GetAccuratePredKernel(
+    const float *X, const uint8_t *y, uint32_t *sum, uint32_t num_samples, uint32_t num_features
+);
+
 
 #endif

@@ -70,4 +70,6 @@ void run_softmax_forward(Tensor *tensor, uint8_t *y_d, LayerGradients *grad, boo
 
 float *compute_negative_log_likelihood_log_lost(Tensor *tensor, uint8_t *y_d);
 
+uint32_t *get_accurate_predictions(Tensor *logits, uint8_t *y_d);
+
 #endif

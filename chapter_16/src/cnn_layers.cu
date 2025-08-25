@@ -650,3 +650,28 @@ float *compute_negative_log_likelihood_log_lost(Tensor *tensor, uint8_t *y_d) {
 
     return out;
 }
+
+
+uint32_t *get_accurate_predictions(Tensor *tensor, uint8_t *y_d) {
+    uint32_t num_samples  = tensor->dim[0];
+    uint32_t num_features = tensor->dim[1];
+
+    uint32_t *out_d;
+    cudaMallocCheck((void**)&out_d, sizeof(uint32_t));
+    cudaMemset(out_d, 0, sizeof(uint32_t));
+
+    uint32_t num_threads = min(num_samples, 1024);
+    dim3 dimBlock(num_threads);
+    dim3 dimGrid(ceil(num_samples * 1.0 / dimBlock.x));
+    GetAccuratePredKernel<<<dimGrid, dimBlock>>>(
+        tensor->values_d, y_d,
+        out_d,
+        num_samples, num_features
+    );
+
+    uint32_t *out = (uint32_t *)mallocCheck(sizeof(uint32_t));
+    cudaMemcpy(out, out_d, sizeof(uint32_t), cudaMemcpyDeviceToHost);
+    cudaFree(out_d);
+
+    return out;
+}
