@@ -1,4 +1,4 @@
 # Chapter 16: Deep Learning
 
 
-In this chapter, a neural network is implemented where all computations are initially run on GPU. MNIST dataset is used, which can be downloaded from many sources, including [Kaggle](https://www.kaggle.com/datasets/hojjatk/mnist-dataset).
+The code has been moved to a new repo: [mnist_cnn_cuda_c](https://github.com/katsudon16/mnist_cnn_cuda_c).
