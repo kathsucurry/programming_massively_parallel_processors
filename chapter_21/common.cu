@@ -6,7 +6,18 @@
 
 void gpu_assert(cudaError_t code, int line) {
    if (code != cudaSuccess) {
-      printf("GPUassert: %s; line %d\n", cudaGetErrorString(code), line);
+      printf("GPUassert: %u %s; line %d\n", code, cudaGetErrorString(code), line);
       exit(code);
+   }
+}
+
+
+/**
+ * Note that this function does not halt the execution.
+ */
+__device__ void gpu_assert_d(cudaError_t code, int line) {
+   if (code != cudaSuccess) {
+      printf("GPUassert: %u %s; line %d\n", code, cudaGetErrorString(code), line);
+      return;
    }
 }

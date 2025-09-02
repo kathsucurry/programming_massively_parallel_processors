@@ -19,33 +19,24 @@ struct BezierLine {
 };
 
 
-__device__ float get_distance(float2 Pi, float2 Pj) {
-    return sqrtf(pow((Pi.x - Pj.x), 2) + pow(Pi.y - Pj.y, 2));
+__device__ float get_length(float2 P) {
+    return sqrtf(P.x * P.x + P.y * P.y);
 }
 
 
 /**
- * Compute the Menger curvature: c = 1 / R = 4A / (dist(P0, P1) * dist(P1, P2) * dist(P0, P2)), where
- *  c denotes the curvature, R denotes the radius, A denotes the area of the triangle formed by the three points, and
- *  dist(Pi, Pj) denotes the distance between points Pi and Pj.
- * 
- * More info: https://en.wikipedia.org/wiki/Menger_curvature.
- * Note that I don't have enough domain knowledge to be 100% that Menger curvature is what we're
- * looking for...
+ * Taken from the CUDA sample code: https://github.com/NVIDIA/cuda-samples/blob/master/Samples/3_CUDA_Features/cdpBezierTessellation/BezierLineCDP.cu#L91.
  */
 __device__ float get_curvature(float2 control_points[COUNT_POINTS]) {
-    // Calculate the distance between points.
-    float a = get_distance(control_points[0], control_points[1]);
-    float b = get_distance(control_points[0], control_points[2]);
-    float c = get_distance(control_points[1], control_points[2]);
+    float2 numerator = {0, 0};
+    numerator.x = control_points[1].x - 0.5f * (control_points[0].x + control_points[2].x);
+    numerator.y = control_points[1].y - 0.5f * (control_points[0].y + control_points[2].y);
 
-    // Calculate the area of the triangle using Heron's formula.
-    float s = (a + b + c) / 2.0f;
-    float A = sqrtf(s * (s - a) * (s - b) * (s - c));
+    float2 denominator = {0, 0};
+    denominator.x = control_points[2].x - control_points[0].x;
+    denominator.y = control_points[2].y - control_points[0].y;
 
-    if (a * b * c != 0.0f)
-        return (4.0f * A) / (a * b * c);
-    return 0.0f;
+    return get_length(numerator) / get_length(denominator);
 }
 
 
