@@ -21,3 +21,13 @@ __device__ void gpu_assert_d(cudaError_t code, int line) {
       return;
    }
 }
+
+
+float2 *get_random_points(int count_points, int seed) {
+   float2 *points = (float2 *)malloc(count_points * sizeof(float2));
+   for (int i = 0; i < count_points; ++i) {
+      points[i].x = (float)rand() / (float)RAND_MAX;
+      points[i].y = (float)rand() / (float)RAND_MAX;
+   }
+   return points;
+}

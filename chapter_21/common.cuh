@@ -7,3 +7,4 @@
 
 void gpu_assert(cudaError_t code, int line);
 __device__ void gpu_assert_d(cudaError_t code, int line);
+float2 *get_random_points(int count_points, int seed);

@@ -153,22 +153,18 @@ void computeBezierLines  (
 
 int main() {
     // Prepare sets of control points.
-    float control_points_set_1[] = {0.0f, 3.0f, 0.0f, 8.0f, 5.0f, 8.0f};
-    float control_points_set_2[] = {1.0f, 8.0f, 3.0f, 13.0f, 5.0f, 7.0f};
     int count_lines = 2;
 
     BezierLine *b_lines = (BezierLine *)malloc(count_lines * sizeof(BezierLine));
-    for (int point_i = 0; point_i < COUNT_POINTS * 2; ++point_i) {
-        if (point_i % 2 == 0) {
-            b_lines[0].control_points[point_i / 2].x = control_points_set_1[point_i];
-            b_lines[1].control_points[point_i / 2].x = control_points_set_2[point_i];
-        } else {
-            b_lines[0].control_points[point_i / 2].y = control_points_set_1[point_i];
-            b_lines[1].control_points[point_i / 2].y = control_points_set_2[point_i];
+    for (int line_i = 0; line_i < count_lines; ++line_i) {
+        float2 *points = get_random_points(3, line_i);
+        for (int point_i = 0; point_i < COUNT_POINTS; ++point_i) {
+            b_lines[line_i].control_points[point_i].x = points[point_i].x;
+            b_lines[line_i].control_points[point_i].y = points[point_i].y;
         }
+        free(points);
+        b_lines[line_i].vertex_positions = nullptr;
     }
-    b_lines[0].vertex_positions = nullptr;
-    b_lines[1].vertex_positions = nullptr;
 
     computeBezierLines(b_lines, count_lines);
 
